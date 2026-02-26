@@ -1,0 +1,74 @@
+﻿@page "/history"
+@using Importer.Client.Models
+@inject Importer.Client.Services.IndexedDbService IndexedDb
+@inject NavigationManager Nav
+
+<h3>Histórico</h3>
+
+@if (_loading)
+{
+    <p><em>A carregar…</em></p>
+}
+else if (_docs.Count == 0)
+{
+    <p><em>Sem documentos.</em></p>
+}
+else
+{
+    <table class="table" style="width:100%;">
+        <thead>
+        <tr>
+            <th>Data doc.</th>
+            <th>Tipo</th>
+            <th>Emitente</th>
+            <th>ATCUD</th>
+            <th>Série/Nº</th>
+            <th>Estado</th>
+            <th></th>
+        </tr>
+        </thead>
+        <tbody>
+        @foreach (var d in _docs)
+        {
+            <tr>
+                <td>@(d.DocumentDate == default ? "-" : d.DocumentDate.ToLocalTime().ToString("yyyy-MM-dd"))</td>
+                <td>@(string.IsNullOrWhiteSpace(d.DocumentType) ? "-" : d.DocumentType)</td>
+
+                <td>
+                    @if (!string.IsNullOrWhiteSpace(d.IssuerName))
+                    {
+                        <div>@d.IssuerName</div>
+                        <div style="opacity:.7; font-size:12px;">NIF: @d.IssuerTaxId</div>
+                    }
+                    else
+                    {
+                        <span>@(string.IsNullOrWhiteSpace(d.IssuerTaxId) ? "-" : d.IssuerTaxId)</span>
+                    }
+                </td>
+
+                <td style="font-family: monospace;">@(string.IsNullOrWhiteSpace(d.ATCUD) ? "-" : d.ATCUD)</td>
+                <td>@(string.IsNullOrWhiteSpace(d.Series) && string.IsNullOrWhiteSpace(d.DocumentNumber) ? "-" : $"{d.Series}/{d.DocumentNumber}")</td>
+                <td>@d.SyncStatus</td>
+
+                <td style="text-align:right;">
+                    <button @onclick="() => Open(d.Id)">Ver</button>
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table>
+}
+
+@code {
+    private bool _loading = true;
+    private readonly List<LocalDocument> _docs = new();
+
+    private void Open(Guid id) => Nav.NavigateTo($"/validate/{id}");
+
+    protected override async Task OnInitializedAsync()
+    {
+        _docs.Clear();
+        _docs.AddRange(await IndexedDb.GetAllDocumentsAsync());
+        _loading = false;
+    }
+}

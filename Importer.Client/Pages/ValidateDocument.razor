@@ -1,0 +1,368 @@
+﻿@page "/validate/{DocumentId:guid?}"
+@using Importer.Client.Services
+@using Importer.Core.QR
+@using Importer.Client.Models
+@using System.Text.Json
+@inject IndexedDbService IndexedDb
+@inject SyncService SyncService
+@inject DocumentStateService DocumentState
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageTitle>Validar Documento</PageTitle>
+
+<div class="validate-layout">
+
+    <details open>
+        <summary><b>Documento</b></summary>
+
+        <DocumentPreview FileBytes="@DocumentState.FileBytes"
+                         ContentType="@DocumentState.ContentType"
+                         FileName="@DocumentState.FileName" />
+    </details>
+
+    <ValidationForm @key="_formKey" Model="@_doc" Disabled="@_saving" />
+
+    @if (!string.IsNullOrWhiteSpace(_message))
+    {
+        <div class="alert">@_message</div>
+    }
+
+    <div class="actions">
+        <button @onclick="SaveDraftAsync" disabled="@_saving">Guardar rascunho</button>
+        <button disabled="@_saving">Validar</button>
+
+        @if (!_readingQr)
+        {
+            <button @onclick="ReprocessQrAsync" disabled="@_saving">
+                Reprocessar QR
+            </button>
+        }
+        else
+        {
+            <button @onclick="CancelQrAsync" type="button">
+                Cancelar leitura
+            </button>
+        }
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(QrDecodedText))
+    {
+        <hr />
+        <h3>QR lido</h3>
+
+        <details open>
+            <summary>Texto do QR (raw)</summary>
+            <pre style="white-space:pre-wrap;">@QrDecodedText</pre>
+        </details>
+
+        @if (!string.IsNullOrWhiteSpace(QrJson))
+        {
+            <details open>
+                <summary>JSON (serializado)</summary>
+                <pre style="white-space:pre-wrap;">@QrJson</pre>
+            </details>
+        }
+    }
+
+    <canvas id="pdfCanvas" style="display:none;"></canvas>
+</div>
+
+@code {
+    [Parameter] public Guid? DocumentId { get; set; }
+
+    private string? QrDecodedText;
+    private string? QrJson;
+    private List<QrData> QrDocs = new();
+
+    private bool _saving;
+    private bool _readingQr;
+    private string? _message;
+
+    private int _formKey = 0;
+    private string? _lastAutoSig;
+
+    private CancellationTokenSource? _qrCts;
+    private int _qrRunId = 0;
+
+    public class PdfDecodeResult
+    {
+        public int Pages { get; set; }
+        public string? QrText { get; set; }
+    }
+
+    private async Task CancelQrAsync()
+    {
+        if (!_readingQr) return;
+
+        _qrRunId++;          // invalida esta run imediatamente
+        _qrCts?.Cancel();
+        _qrCts = null;
+
+        _readingQr = false;
+        _message = "Leitura cancelada.";
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private LocalDocument _doc = new()
+    {
+        Id = Guid.NewGuid(),
+        Source = "Upload",
+        SyncStatus = SyncStatus.PendingSync,
+        DocumentDate = DateTime.UtcNow
+    };
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(DocumentState.QrText))
+        {
+            var qr = DocumentState.QrText;
+
+            QrDecodedText = qr;
+            _doc.QrRawPayload = qr;
+
+            RunQrParseAndApply(qr);
+
+            DocumentState.ClearQrText();
+            return;
+        }
+
+        if (DocumentId is not null)
+        {
+            DocumentState.Clear();
+
+            var doc = await IndexedDb.GetDocumentAsync(DocumentId.Value);
+            if (doc is null)
+            {
+                Nav.NavigateTo("/history");
+                return;
+            }
+
+            _doc = doc;
+
+            if (DocumentState.FileBytes is null)
+            {
+                var file = await IndexedDb.GetFileAsync(doc.FileKey);
+                if (file is null)
+                {
+                    Nav.NavigateTo("/history");
+                    return;
+                }
+                DocumentState.SetFile(file.Value.FileName, file.Value.ContentType, file.Value.Bytes);
+            }
+
+            _message = null;
+            return;
+        }
+
+        if (DocumentState.FileBytes is null)
+        {
+            _message = "Sem ficheiro carregado. Volta ao upload.";
+            return;
+        }
+
+        _message = null;
+        _doc.Source = "Upload";
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (DocumentState.FileBytes is null || string.IsNullOrWhiteSpace(DocumentState.ContentType))
+            return;
+
+        if (!(DocumentState.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)
+           || DocumentState.ContentType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase)))
+            return;
+
+        var b = DocumentState.FileBytes;
+        var sig8 = string.Join("", b.Take(8).Select(x => x.ToString("X2")));
+        var sig = $"{DocumentState.ContentType}|{b.Length}|{sig8}";
+
+        if (sig == _lastAutoSig)
+            return;
+
+        _lastAutoSig = sig;
+
+        await ReprocessQrAsync();
+    }
+
+    private static DateTime? TryParseQrDate(string? yyyymmdd)
+    {
+        if (string.IsNullOrWhiteSpace(yyyymmdd) || yyyymmdd.Length != 8) return null;
+        if (!int.TryParse(yyyymmdd[..4], out var y)) return null;
+        if (!int.TryParse(yyyymmdd.Substring(4, 2), out var m)) return null;
+        if (!int.TryParse(yyyymmdd.Substring(6, 2), out var d)) return null;
+
+        try { return new DateTime(y, m, d); }
+        catch { return null; }
+    }
+
+    private static string ExtractSeriesFromG(string? g)
+    {
+        if (string.IsNullOrWhiteSpace(g)) return "";
+        var parts = g.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length >= 2 ? parts[1] : "";
+    }
+
+    private static string ExtractNumberFromAtcud(string? h)
+    {
+        if (string.IsNullOrWhiteSpace(h)) return "";
+        var idx = h.LastIndexOf('-');
+        return (idx >= 0 && idx < h.Length - 1) ? h[(idx + 1)..] : "";
+    }
+
+    private void ApplyQrToLocalDocument(QrData d)
+    {
+        _doc.IssuerTaxId = d.A ?? "";
+        _doc.DocumentType = d.D ?? "";
+        _doc.Series = ExtractSeriesFromG(d.G);
+        _doc.ATCUD = d.H ?? "";
+        _doc.DocumentNumber = ExtractNumberFromAtcud(d.H);
+
+        var dt = TryParseQrDate(d.F);
+        if (dt is not null)
+            _doc.DocumentDate = dt.Value;
+
+        _formKey++;
+    }
+
+    private void RunQrParseAndApply(string payload)
+    {
+        var parsed = QrParser.Parse(payload);
+        QrDocs = new List<QrData> { parsed };
+
+        QrJson = JsonSerializer.Serialize(QrDocs, new JsonSerializerOptions { WriteIndented = true });
+
+        _doc.QrParsedData = JsonDocument.Parse(
+            JsonSerializer.Serialize(parsed, new JsonSerializerOptions { WriteIndented = false })
+        );
+
+        ApplyQrToLocalDocument(parsed);
+    }
+
+    private async Task ReprocessQrAsync()
+    {
+        if (_readingQr) return;
+
+        _readingQr = true;
+        _qrCts?.Cancel();
+        _qrCts = new CancellationTokenSource();
+
+        var runId = ++_qrRunId;
+        var token = _qrCts.Token;
+
+        _message = "A ler QR...";
+        await InvokeAsync(StateHasChanged);
+
+        QrDecodedText = null;
+        QrJson = null;
+        QrDocs.Clear();
+
+        try
+        {
+            if (DocumentState.FileBytes is null || string.IsNullOrWhiteSpace(DocumentState.ContentType))
+            {
+                _message = "Sem ficheiro carregado.";
+                return;
+            }
+
+            string? payload = null;
+
+            if (DocumentState.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+            {
+                // modo rápido: worker ZXing (timeout 6s)
+                payload = await JS.InvokeAsync<string>(
+                    "qrInterop.decodeQrFromBytes",
+                    DocumentState.FileBytes,
+                    DocumentState.ContentType,
+                    6000
+                );
+            }
+            else if (DocumentState.ContentType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase))
+            {
+                var base64 = Convert.ToBase64String(DocumentState.FileBytes);
+
+                // DPI moderado para decode (mais rápido)
+                var result = await JS.InvokeAsync<PdfDecodeResult>(
+                    "pdfInterop.renderAndDecodeFromBase64",
+                    base64,
+                    "pdfCanvas",
+                    1,
+                    160
+                );
+
+                payload = result?.QrText;
+            }
+            else
+            {
+                _message = "Tipo de ficheiro não suportado.";
+                return;
+            }
+
+            if (token.IsCancellationRequested || runId != _qrRunId)
+                return;
+
+            payload = (payload ?? "").Replace("\r", "").Replace("\n", "").Trim();
+
+            if (string.IsNullOrWhiteSpace(payload))
+            {
+                _message = "QR não encontrado. (Se for difícil, tenta o modo agressivo.)";
+                return;
+            }
+
+            _doc.QrRawPayload = payload;
+            QrDecodedText = payload;
+
+            RunQrParseAndApply(payload);
+
+            _message = "QR lido e campos preenchidos.";
+        }
+        catch (Exception ex)
+        {
+            _message = $"Erro a ler QR: {ex.Message}";
+        }
+        finally
+        {
+            if (runId == _qrRunId)
+            {
+                _readingQr = false;
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+    }
+
+    private async Task SaveDraftAsync()
+    {
+        _message = null;
+
+        var bytes = DocumentState.FileBytes;
+        var fileName = DocumentState.FileName;
+        var contentType = DocumentState.ContentType;
+
+        if (bytes is null || string.IsNullOrWhiteSpace(fileName) || string.IsNullOrWhiteSpace(contentType))
+        {
+            _message = "Nenhum ficheiro em memória. Volta ao upload.";
+            return;
+        }
+
+        _saving = true;
+        try
+        {
+            _doc.FileKey = string.IsNullOrWhiteSpace(_doc.FileKey) ? $"doc:{_doc.Id:D}" : _doc.FileKey;
+            _doc.SyncStatus = SyncStatus.PendingSync;
+
+            await IndexedDb.SaveDocumentAsync(_doc, fileName, contentType, bytes);
+            await SyncService.SyncPendingAsync();
+
+            _message = "Rascunho guardado localmente (IndexedDB).";
+        }
+        catch (Exception ex)
+        {
+            _message = $"Erro ao guardar rascunho: {ex.Message}";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Importer.Client</title>
+    <base href="/" />
+    <link rel="stylesheet" href="css/bootstrap/bootstrap.min.css" />
+    <link rel="stylesheet" href="css/app.css" />
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <link href="Importer.Client.styles.css" rel="stylesheet" />
+</head>
+
+<body>
+    <div id="app">
+        <svg class="loading-progress">
+            <circle r="40%" cx="50%" cy="50%" />
+            <circle r="40%" cx="50%" cy="50%" />
+        </svg>
+        <div class="loading-progress-text"></div>
+    </div>
+
+    <div id="blazor-error-ui">
+        An unhandled error has occurred.
+        <a href="" class="reload">Reload</a>
+        <a class="dismiss">🗙</a>
+    </div>
+    <script src="/workers/lib/zxing/index.min.js"></script>
+    <script src="/workers/lib/jsqr/jsQR.min.js"></script>
+
+    <script src="/pdfjs/pdf.min.js"></script>
+    <script>
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdfjs/pdf.worker.min.js";
+    </script>
+    <!--<script src="/js/qrTest.js"></script>-->-->
+    <script src="/js/pdfInterop.js"></script>
+    <script src="/js/qrInterop.js"></script>
+    <script src="/js/cameraInterop.js"></script>
+    <script src="/js/exportHelpers.js"></script>
+    <script src="/js/connectivity.js"></script>
+    <script src="/js/indexedDb.js"></script>
+
+    <script src="_framework/blazor.webassembly.js"></script>
+</body>
+
+</html>

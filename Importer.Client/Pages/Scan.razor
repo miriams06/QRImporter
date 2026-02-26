@@ -1,0 +1,108 @@
+﻿@page "/scan"
+@using Importer.Client.Services
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+@inject DocumentStateService DocumentState
+
+<h3>Ler QR com Câmara</h3>
+
+<div style="display:flex; gap:12px; align-items:flex-start; flex-wrap:wrap;">
+    <video id="@VideoId" style="width:360px; max-width:100%; border-radius:10px; background:#000;"></video>
+
+    <div style="display:flex; flex-direction:column; gap:8px; min-width:220px;">
+        <button type="button" @onclick="StartAsync" disabled="@_cameraOn">Abrir câmara</button>
+        <button type="button" @onclick="StopAsync" disabled="@(!_cameraOn)">Parar câmara</button>
+        <button type="button" @onclick="Cancel">Cancelar</button>
+
+        <div style="font-size:12px; opacity:.75;">
+            @(_message ?? "Dica: coloca o QR ao centro e aproxima até ficar nítido.")
+        </div>
+    </div>
+</div>
+
+@code {
+    private const string VideoId = "qrVideo";
+    private bool _cameraOn;
+    private bool _scanning;
+    private string? _message;
+    private CancellationTokenSource? _cts;
+
+    private async Task StartAsync()
+    {
+        // Garante que não fica preso o último upload
+        DocumentState.Clear();
+        if (_cameraOn) return;
+
+        _message = null;
+        await JS.InvokeVoidAsync("cameraInterop.startCamera", VideoId);
+
+        _cameraOn = true;
+        _scanning = true;
+
+        _cts?.Cancel();
+        _cts = new CancellationTokenSource();
+
+        _ = ScanLoopAsync(_cts.Token);
+    }
+
+    private async Task ScanLoopAsync(CancellationToken ct)
+    {
+        try
+        {
+            while (!ct.IsCancellationRequested && _cameraOn)
+            {
+                var qr = await JS.InvokeAsync<string?>("cameraInterop.tryDecodeFromVideo", VideoId);
+
+                if (!string.IsNullOrWhiteSpace(qr))
+                {
+                    // 1) guarda no state
+                    DocumentState.SetQrText(qr);
+
+                    // 2) pára câmara
+                    await StopAsync();
+
+                    // 3) vai para validação
+                    Nav.NavigateTo("/validate", replace: true);
+                    return;
+                }
+
+                // 4x por segundo é suficiente e não pesa
+                await Task.Delay(250, ct);
+            }
+        }
+        catch (TaskCanceledException) { }
+        catch (Exception ex)
+        {
+            _message = $"Erro no scan: {ex.Message}";
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task StopAsync()
+    {
+        if (!_cameraOn) return;
+
+        _scanning = false;
+        _cameraOn = false;
+
+        try
+        {
+            await JS.InvokeVoidAsync("cameraInterop.stopCamera", VideoId);
+        }
+        catch { /* evita rebentar se o browser já matou a stream */ }
+
+        _cts?.Cancel();
+        _cts = null;
+    }
+
+    private async Task Cancel()
+    {
+        await StopAsync();
+        Nav.NavigateTo("/upload");
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await StopAsync();
+    }
+}

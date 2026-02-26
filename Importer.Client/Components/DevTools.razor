@@ -1,0 +1,103 @@
+﻿@using Importer.Client.Services
+@using Importer.Core.Config
+@inject FeatureFlagsService Flags
+@inject AppConfig Cfg
+
+@inject SyncService Sync
+@inject OnlineModeService OnlineMode
+
+@if (!IsDev)
+{
+    return;
+}
+
+<div class="devtools">
+    <div class="devtools-title">Dev Tools</div>
+
+    <label class="devtools-row">
+        <input type="checkbox" checked="@Offline" @onchange="OnOfflineChanged" />
+        <span>Forçar Offline</span>
+    </label>
+
+    <label class="devtools-row">
+        <input type="checkbox" checked="@SyncEnabled" @onchange="OnSyncChanged" />
+        <span>Ativar Sync</span>
+    </label>
+
+    <label class="devtools-row">
+        <input type="checkbox" checked="@Qr" @onchange="OnQrChanged" />
+        <span>QR Reprocessar</span>
+    </label>
+
+    <button class="devtools-btn" @onclick="Reset">Reset</button>
+</div>
+
+@code {
+    private bool IsDev =>
+        string.Equals(Cfg.EnvironmentName, "Development", StringComparison.OrdinalIgnoreCase);
+
+    // Usa sempre os "Effective" para refletir exatamente o que a app está a usar.
+    // (override -> se existir, senão AppConfig)
+    private bool Offline => Flags.EffectiveOfflineMode;
+    private bool SyncEnabled => Flags.EffectiveServerSyncEnabled;
+    private bool Qr => Flags.EffectiveQrReprocessingEnabled;
+
+    private async Task TryAutoSyncNowAsync()
+    {
+        // Só tenta sync se:
+        // - SyncEnabled ligado
+        // - não está "Forçar Offline"
+        // - e o browser está online
+        if (!Flags.EffectiveServerSyncEnabled)
+            return;
+
+        if (!await OnlineMode.IsEffectivelyOnlineAsync())
+            return;
+
+        await Sync.SyncPendingAsync();
+    }
+
+    private async Task OnOfflineChanged(ChangeEventArgs e)
+    {
+        var newValue = (bool?)e.Value == true;
+        Flags.Overrides.OfflineMode = newValue;
+        await Flags.SaveAsync();
+
+        // Se acabou de desligar o "Forçar Offline" e o sync está ligado,
+        // tenta sincronizar já (sem o user ter de fazer nada).
+        if (!newValue)
+            await TryAutoSyncNowAsync();
+
+        StateHasChanged();
+    }
+
+    private async Task OnSyncChanged(ChangeEventArgs e)
+    {
+        var newValue = (bool?)e.Value == true;
+        Flags.Overrides.ServerSyncEnabled = newValue;
+        await Flags.SaveAsync();
+
+        // Se acabou de ligar o sync e está online, sincroniza já.
+        if (newValue)
+            await TryAutoSyncNowAsync();
+
+        StateHasChanged();
+    }
+
+    private async Task OnQrChanged(ChangeEventArgs e)
+    {
+        Flags.Overrides.QrReprocessingEnabled = (bool?)e.Value == true;
+        await Flags.SaveAsync();
+        StateHasChanged();
+    }
+
+    private async Task Reset()
+    {
+        await Flags.ClearAsync();
+
+        // Depois de reset, se por config o sync estiver ligado e estiver online, sincroniza.
+        await TryAutoSyncNowAsync();
+
+        StateHasChanged();
+    }
+}

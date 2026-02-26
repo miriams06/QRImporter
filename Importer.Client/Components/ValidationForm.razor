@@ -1,0 +1,44 @@
+﻿@using Importer.Client.Models
+@using Microsoft.AspNetCore.Components.Forms
+
+@if (Model is null)
+{
+    <p><em>A carregar dados…</em></p>
+    return;
+}
+
+<EditForm Model="Model">
+    <DataAnnotationsValidator />
+
+    <div>
+        <label>Tipo Documento</label>
+        <InputText @bind-Value="Model.DocumentType" disabled="@(Disabled)" />
+    </div>
+
+    <div>
+        <label>Série</label>
+        <InputText @bind-Value="Model.Series" disabled="@(Disabled)" />
+    </div>
+
+    <div>
+        <label>Número</label>
+        <InputText @bind-Value="Model.DocumentNumber" disabled="@(Disabled)" />
+    </div>
+
+    <div>
+        <label>NIF Emissor</label>
+        <InputText @bind-Value="Model.IssuerTaxId" disabled="@(Disabled)" />
+    </div>
+
+    <div>
+        <label>ATCUD</label>
+        <InputText @bind-Value="Model.ATCUD" disabled="@(Disabled)" />
+    </div>
+
+    <ValidationSummary />
+</EditForm>
+
+@code {
+    [Parameter] public LocalDocument? Model { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+}

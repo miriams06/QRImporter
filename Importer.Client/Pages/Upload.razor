@@ -1,0 +1,58 @@
+﻿@page "/upload"
+@using Microsoft.AspNetCore.Components.Forms
+@using Importer.Client.Services
+@inject DocumentStateService DocumentState
+@inject NavigationManager Nav
+
+<h3>Upload de Documento</h3>
+
+<p style="opacity:.8; margin-top:-6px;">
+    Como queres começar?
+</p>
+
+<div style="display:flex; gap:12px; flex-wrap:wrap; margin:12px 0;">
+    <button type="button" @onclick="() => _showFilePicker = true">
+        Carregar ficheiro
+    </button>
+
+    <button type="button" @onclick="GoCamera">
+        Ler QR com câmara
+    </button>
+</div>
+
+@if (_showFilePicker)
+{
+    <div style="margin-top:10px;">
+        <FileUpload OnFileSelected="HandleFile" />
+    </div>
+}
+
+@if (_file != null)
+{
+    <p>Ficheiro selecionado: @_file.Name</p>
+}
+
+@code {
+    private IBrowserFile? _file;
+    private bool _showFilePicker;
+
+    private void GoCamera()
+    {
+        // Vai direto para validação em modo câmara (sem ficheiro carregado)
+        Nav.NavigateTo("/scan");
+    }
+
+    private async Task HandleFile(IBrowserFile file)
+    {
+        _file = file;
+
+        const long maxAllowedSize = 100_000_000; // 100MB
+
+        using var stream = file.OpenReadStream(maxAllowedSize);
+        using var ms = new MemoryStream();
+        await stream.CopyToAsync(ms);
+
+        DocumentState.SetFile(file.Name, file.ContentType, ms.ToArray());
+        Nav.NavigateTo("/validate");
+    }
+}

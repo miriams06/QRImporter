@@ -1,0 +1,16 @@
+﻿@using Microsoft.AspNetCore.Components.Forms
+<InputFile OnChange = "OnChange" accept = ".pdf,.jpg,.jpeg,.png" />
+
+@code {
+    [Parameter] public EventCallback<IBrowserFile> OnFileSelected { get; set; }
+
+    private async Task OnChange(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+
+        // TODO (Milestone 3):
+        // Validar tipo e tamanho
+
+        await OnFileSelected.InvokeAsync(file);
+    }
+}

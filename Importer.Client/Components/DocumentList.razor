@@ -1,0 +1,44 @@
+﻿@using Importer.Client.Models
+@using Microsoft.AspNetCore.Components
+@inject Importer.Client.Services.ExportService ExportService
+
+
+<table class="table">
+    <thead>
+        <tr>
+            <th>Data</th>
+            <th>Tipo</th>
+            <th>NIF</th>
+            <th>ATCUD</th>
+            <th>Número</th>
+            <th>Estado</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var doc in Documents)
+        {
+            <tr>
+                <td>@doc.DocumentDate.ToShortDateString()</td>
+                <td>@doc.DocumentType</td>
+                <td>@doc.IssuerTaxId</td>
+                <td>@doc.ATCUD</td>
+                <td>@($"{doc.Series}/{doc.DocumentNumber}")</td>
+                <td>@doc.SyncStatus</td>
+                <td>
+                    <a href="@($"/validate/{doc.Id}")">Abrir</a>
+                    |
+                    <button @onclick="() => ExportService.ExportAsync(doc)">
+                        Exportar
+                    </button>
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+@code {
+    [Parameter]
+    public IEnumerable<LocalDocument> Documents { get; set; }
+        = Enumerable.Empty<LocalDocument>();
+}

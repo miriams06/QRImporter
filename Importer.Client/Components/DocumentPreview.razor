@@ -1,0 +1,157 @@
+﻿@using Microsoft.AspNetCore.Components
+@inject Importer.Client.Services.PdfRenderService PdfRender
+
+<div class="docPreview">
+    @if (FileBytes == null || string.IsNullOrWhiteSpace(ContentType))
+    {
+        <div class="docPreview__empty">
+            <em>Nenhum documento selecionado</em>
+        </div>
+    }
+    else if (ContentType.Trim().StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+    {
+        <div class="docPreview__header">
+            <div class="docPreview__meta">
+                <div class="docPreview__name">@FileName</div>
+                <div class="docPreview__type">@ContentType</div>
+            </div>
+
+            <button class="docPreview__btn" type="button" @onclick="() => _showModal = true">
+                Ver maior
+            </button>
+        </div>
+
+        <div class="docPreview__imageWrap">
+            <img class="docPreview__img"
+                 src="data:@ContentType;base64,@Convert.ToBase64String(FileBytes!)"
+                 alt="Pré-visualização do documento" />
+        </div>
+
+        @if (_showModal)
+        {
+            <div class="docPreview__modal" @onclick="CloseModal">
+                <div class="docPreview__modalInner" @onclick:stopPropagation="true">
+                    <div class="docPreview__modalHeader">
+                        <div>
+                            <div class="docPreview__name">@FileName</div>
+                            <div class="docPreview__type">@ContentType</div>
+                        </div>
+                        <button class="docPreview__btn" type="button" @onclick="CloseModal">Fechar</button>
+                    </div>
+
+                    <div class="docPreview__modalBody">
+                        <img class="docPreview__imgFull"
+                             src="data:@ContentType;base64,@Convert.ToBase64String(FileBytes!)"
+                             alt="Documento (tamanho grande)" />
+                    </div>
+                </div>
+            </div>
+        }
+    }
+    else if (ContentType.Trim().Equals("application/pdf", StringComparison.OrdinalIgnoreCase))
+{
+    <div class="docPreview__header">
+        <div class="docPreview__meta">
+            <div class="docPreview__name">@FileName</div>
+            <div class="docPreview__type">@ContentType</div>
+        </div>
+
+        <button class="docPreview__btn" type="button" @onclick="() => _showModal = true">
+            Ver maior
+        </button>
+    </div>
+
+    <div class="docPreview__pdfWrap">
+        <canvas id="@_canvasId" class="docPreview__pdfCanvas"></canvas>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_pdfMsg))
+    {
+        <div class="docPreview__empty">@_pdfMsg</div>
+    }
+
+    @if (_showModal)
+    {
+        <div class="docPreview__modal" @onclick="CloseModal">
+            <div class="docPreview__modalInner" @onclick:stopPropagation="true">
+                <div class="docPreview__modalHeader">
+                    <div>
+                        <div class="docPreview__name">@FileName</div>
+                        <div class="docPreview__type">@ContentType</div>
+                    </div>
+                    <button class="docPreview__btn" type="button" @onclick="CloseModal">Fechar</button>
+                </div>
+
+                <div class="docPreview__modalBody">
+                    <canvas id="@_canvasIdModal" class="docPreview__pdfCanvasFull"></canvas>
+                </div>
+            </div>
+        </div>
+    }
+}
+</div>
+
+@code {
+    [Parameter] public byte[]? FileBytes { get; set; }
+    [Parameter] public string? ContentType { get; set; }
+    [Parameter] public string? FileName { get; set; }
+
+    private bool _showModal;
+
+    private void CloseModal(){ _showModal = false; _renderedModal = false; _sigModal = null; }
+    private readonly string _canvasId = "pdf_" + Guid.NewGuid().ToString("N");
+    private readonly string _canvasIdModal = "pdf_modal_" + Guid.NewGuid().ToString("N");
+
+    private string? _pdfMsg;
+    private bool _renderedMain;
+    private bool _renderedModal;
+    private string? _sigMain;
+    private string? _sigModal;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+{
+    if (FileBytes is null) return;
+    if (!string.Equals(ContentType, "application/pdf", StringComparison.OrdinalIgnoreCase)) return;
+
+    var sig = $"{FileBytes.Length}:{FileBytes[0]}:{FileBytes[^1]}";
+
+    try
+    {
+        // Render preview normal (1x por ficheiro)
+        if (!_renderedMain || _sigMain != sig)
+        {
+            _pdfMsg = "A renderizar PDF…";
+            await InvokeAsync(StateHasChanged);
+
+            _sigMain = sig;
+            _renderedMain = true;
+
+            await PdfRender.RenderPageAsync(FileBytes, _canvasId, pageNumber: 1, dpi: 160);
+
+            _pdfMsg = null;
+            await InvokeAsync(StateHasChanged);
+        }
+
+        // Render modal (quando abre o modal)
+        if (_showModal && (!_renderedModal || _sigModal != sig))
+        {
+            _sigModal = sig;
+            _renderedModal = true;
+
+            await PdfRender.RenderPageAsync(FileBytes, _canvasIdModal, pageNumber: 1, dpi: 220);
+        }
+
+        // Se fechou o modal, permite renderizar novamente quando abrir
+        if (!_showModal)
+        {
+            _renderedModal = false;
+            _sigModal = null;
+        }
+    }
+    catch (Exception ex)
+    {
+        _pdfMsg = "Erro a renderizar PDF: " + ex.Message;
+        await InvokeAsync(StateHasChanged);
+    }
+}
+}
