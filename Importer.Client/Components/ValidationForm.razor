@@ -12,27 +12,27 @@
 
     <div>
         <label>Tipo Documento</label>
-        <input @bind="Model.DocumentType" @bind:event="oninput" @oninput='async _ => await NotifyEditedAsync(nameof(LocalDocument.DocumentType))' disabled="@(Disabled)" />
+        <input @bind="Model.DocumentType" @bind:event="oninput" @bind:after='async () => await NotifyEditedAsync(nameof(LocalDocument.DocumentType))' disabled="@(Disabled)" />
     </div>
 
     <div>
         <label>Série</label>
-        <input @bind="Model.Series" @bind:event="oninput" @oninput='async _ => await NotifyEditedAsync(nameof(LocalDocument.Series))' disabled="@(Disabled)" />
+        <input @bind="Model.Series" @bind:event="oninput" @bind:after='async () => await NotifyEditedAsync(nameof(LocalDocument.Series))' disabled="@(Disabled)" />
     </div>
 
     <div>
         <label>Número</label>
-        <input @bind="Model.DocumentNumber" @bind:event="oninput" @oninput='async _ => await NotifyEditedAsync(nameof(LocalDocument.DocumentNumber))' disabled="@(Disabled)" />
+        <input @bind="Model.DocumentNumber" @bind:event="oninput" @bind:after='async () => await NotifyEditedAsync(nameof(LocalDocument.DocumentNumber))' disabled="@(Disabled)" />
     </div>
 
     <div>
         <label>NIF Emissor</label>
-        <input @bind="Model.IssuerTaxId" @bind:event="oninput" @oninput='async _ => await NotifyEditedAsync(nameof(LocalDocument.IssuerTaxId))' disabled="@(Disabled)" />
+        <input @bind="Model.IssuerTaxId" @bind:event="oninput" @bind:after='async () => await NotifyEditedAsync(nameof(LocalDocument.IssuerTaxId))' disabled="@(Disabled)" />
     </div>
 
     <div>
         <label>ATCUD</label>
-        <input @bind="Model.ATCUD" @bind:event="oninput" @oninput='async _ => await NotifyEditedAsync(nameof(LocalDocument.ATCUD))' disabled="@(Disabled)" />
+        <input @bind="Model.ATCUD" @bind:event="oninput" @bind:after='async () => await NotifyEditedAsync(nameof(LocalDocument.ATCUD))' disabled="@(Disabled)" />
     </div>
 
     <ValidationSummary />
