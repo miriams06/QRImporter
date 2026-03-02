@@ -203,6 +203,22 @@
         setter();
     }
 
+    private void ApplyQrTextField(string fieldName, Func<string> currentValue, Action<string> setValue, string? newValue)
+    {
+        if (_manuallyEditedFields.Contains(fieldName))
+            return;
+
+        var next = (newValue ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(next))
+            return;
+
+        var current = (currentValue() ?? string.Empty).Trim();
+        if (string.Equals(current, next, StringComparison.Ordinal))
+            return;
+
+        setValue(next);
+    }
+
     private static DateTime? TryParseQrDate(string? yyyymmdd)
     {
         if (string.IsNullOrWhiteSpace(yyyymmdd) || yyyymmdd.Length != 8) return null;
@@ -230,11 +246,11 @@
 
     private void ApplyQrToLocalDocument(QrData d)
     {
-        SetIfNotEdited(nameof(LocalDocument.IssuerTaxId), () => _doc.IssuerTaxId = d.A ?? "");
-        SetIfNotEdited(nameof(LocalDocument.DocumentType), () => _doc.DocumentType = d.D ?? "");
-        SetIfNotEdited(nameof(LocalDocument.Series), () => _doc.Series = ExtractSeriesFromG(d.G));
-        SetIfNotEdited(nameof(LocalDocument.ATCUD), () => _doc.ATCUD = d.H ?? "");
-        SetIfNotEdited(nameof(LocalDocument.DocumentNumber), () => _doc.DocumentNumber = ExtractNumberFromAtcud(d.H));
+        ApplyQrTextField(nameof(LocalDocument.IssuerTaxId), () => _doc.IssuerTaxId, v => _doc.IssuerTaxId = v, d.A);
+        ApplyQrTextField(nameof(LocalDocument.DocumentType), () => _doc.DocumentType, v => _doc.DocumentType = v, d.D);
+        ApplyQrTextField(nameof(LocalDocument.Series), () => _doc.Series, v => _doc.Series = v, ExtractSeriesFromG(d.G));
+        ApplyQrTextField(nameof(LocalDocument.ATCUD), () => _doc.ATCUD, v => _doc.ATCUD = v, d.H);
+        ApplyQrTextField(nameof(LocalDocument.DocumentNumber), () => _doc.DocumentNumber, v => _doc.DocumentNumber = v, ExtractNumberFromAtcud(d.H));
 
         var dt = TryParseQrDate(d.F);
         if (dt is not null)
