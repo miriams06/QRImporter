@@ -7,7 +7,7 @@
 @inject SyncService SyncService
 @inject DocumentStateService DocumentState
 @inject NavigationManager Nav
-@inject IJSRuntime JS
+@inject QrDecodeService QrDecoder
 
 <PageTitle>Validar Documento</PageTitle>
 
@@ -21,7 +21,7 @@
                          FileName="@DocumentState.FileName" />
     </details>
 
-    <ValidationForm @key="_formKey" Model="@_doc" Disabled="@_saving" />
+    <ValidationForm @key="_formKey" Model="@_doc" Disabled="@_saving" OnFieldEdited="OnFieldEditedAsync" />
 
     @if (!string.IsNullOrWhiteSpace(_message))
     {
@@ -84,12 +84,7 @@
 
     private CancellationTokenSource? _qrCts;
     private int _qrRunId = 0;
-
-    public class PdfDecodeResult
-    {
-        public int Pages { get; set; }
-        public string? QrText { get; set; }
-    }
+    private bool _loadedFromHistory;
 
     private async Task CancelQrAsync()
     {
@@ -124,6 +119,7 @@
             RunQrParseAndApply(qr);
 
             DocumentState.ClearQrText();
+            _loadedFromHistory = false;
             return;
         }
 
@@ -139,6 +135,7 @@
             }
 
             _doc = doc;
+            _loadedFromHistory = true;
 
             if (DocumentState.FileBytes is null)
             {
@@ -162,6 +159,7 @@
         }
 
         _message = null;
+        _loadedFromHistory = false;
         _doc.Source = "Upload";
     }
 
@@ -169,6 +167,9 @@
     {
         if (DocumentState.FileBytes is null || string.IsNullOrWhiteSpace(DocumentState.ContentType))
             return;
+        if (_loadedFromHistory)
+            return;
+
 
         if (!(DocumentState.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)
            || DocumentState.ContentType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase)))
@@ -184,6 +185,39 @@
         _lastAutoSig = sig;
 
         await ReprocessQrAsync();
+    }
+
+
+    private readonly HashSet<string> _manuallyEditedFields = new(StringComparer.Ordinal);
+
+    private Task OnFieldEditedAsync(string fieldName)
+    {
+        _manuallyEditedFields.Add(fieldName);
+        return Task.CompletedTask;
+    }
+
+    private void SetIfNotEdited(string fieldName, Action setter)
+    {
+        if (_manuallyEditedFields.Contains(fieldName))
+            return;
+
+        setter();
+    }
+
+    private void ApplyQrTextField(string fieldName, Func<string> currentValue, Action<string> setValue, string? newValue)
+    {
+        if (_manuallyEditedFields.Contains(fieldName))
+            return;
+
+        var next = (newValue ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(next))
+            return;
+
+        var current = (currentValue() ?? string.Empty).Trim();
+        if (string.Equals(current, next, StringComparison.Ordinal))
+            return;
+
+        setValue(next);
     }
 
     private static DateTime? TryParseQrDate(string? yyyymmdd)
@@ -213,15 +247,15 @@
 
     private void ApplyQrToLocalDocument(QrData d)
     {
-        _doc.IssuerTaxId = d.A ?? "";
-        _doc.DocumentType = d.D ?? "";
-        _doc.Series = ExtractSeriesFromG(d.G);
-        _doc.ATCUD = d.H ?? "";
-        _doc.DocumentNumber = ExtractNumberFromAtcud(d.H);
+        ApplyQrTextField(nameof(LocalDocument.IssuerTaxId), () => _doc.IssuerTaxId, v => _doc.IssuerTaxId = v, d.A);
+        ApplyQrTextField(nameof(LocalDocument.DocumentType), () => _doc.DocumentType, v => _doc.DocumentType = v, d.D);
+        ApplyQrTextField(nameof(LocalDocument.Series), () => _doc.Series, v => _doc.Series = v, ExtractSeriesFromG(d.G));
+        ApplyQrTextField(nameof(LocalDocument.ATCUD), () => _doc.ATCUD, v => _doc.ATCUD = v, d.H);
+        ApplyQrTextField(nameof(LocalDocument.DocumentNumber), () => _doc.DocumentNumber, v => _doc.DocumentNumber = v, ExtractNumberFromAtcud(d.H));
 
         var dt = TryParseQrDate(d.F);
         if (dt is not null)
-            _doc.DocumentDate = dt.Value;
+            SetIfNotEdited(nameof(LocalDocument.DocumentDate), () => _doc.DocumentDate = dt.Value);
 
         _formKey++;
     }
@@ -265,57 +299,33 @@
                 _message = "Sem ficheiro carregado.";
                 return;
             }
-
-            string? payload = null;
-
-            if (DocumentState.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
-            {
-                // modo rápido: worker ZXing (timeout 6s)
-                payload = await JS.InvokeAsync<string>(
-                    "qrInterop.decodeQrFromBytes",
-                    DocumentState.FileBytes,
-                    DocumentState.ContentType,
-                    6000
-                );
-            }
-            else if (DocumentState.ContentType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase))
-            {
-                var base64 = Convert.ToBase64String(DocumentState.FileBytes);
-
-                // DPI moderado para decode (mais rápido)
-                var result = await JS.InvokeAsync<PdfDecodeResult>(
-                    "pdfInterop.renderAndDecodeFromBase64",
-                    base64,
-                    "pdfCanvas",
-                    1,
-                    160
-                );
-
-                payload = result?.QrText;
-            }
-            else
-            {
-                _message = "Tipo de ficheiro não suportado.";
-                return;
-            }
+            var decode = await QrDecoder.DecodeAsync(
+                DocumentState.FileBytes,
+                DocumentState.ContentType,
+                token);
 
             if (token.IsCancellationRequested || runId != _qrRunId)
                 return;
 
-            payload = (payload ?? "").Replace("\r", "").Replace("\n", "").Trim();
-
-            if (string.IsNullOrWhiteSpace(payload))
+            if (decode.Success)
             {
-                _message = "QR não encontrado. (Se for difícil, tenta o modo agressivo.)";
+                var payload = (decode.Payload ?? string.Empty).Replace("\r", "").Replace("\n", "").Trim();
+                _doc.QrRawPayload = payload;
+                QrDecodedText = payload;
+
+                RunQrParseAndApply(payload);
+
+                _message = $"QR lido e campos preenchidos em {decode.DurationMs} ms ({decode.Strategy}, tentativas: {decode.Attempts}).";
+            }
+            else if (string.Equals(decode.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase))
+            {
+                _message = "Leitura cancelada.";
+            }
+            else
+            {
+                _message = $"QR não encontrado ({decode.Strategy}, tentativas: {decode.Attempts}, {decode.DurationMs} ms).";
                 return;
             }
-
-            _doc.QrRawPayload = payload;
-            QrDecodedText = payload;
-
-            RunQrParseAndApply(payload);
-
-            _message = "QR lido e campos preenchidos.";
         }
         catch (Exception ex)
         {
