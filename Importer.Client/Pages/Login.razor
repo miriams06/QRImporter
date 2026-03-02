@@ -1,5 +1,78 @@
-﻿<h3>Login</h3>
+@page "/login"
+@using Importer.Client.Auth
+@inject ClientAuthService Auth
+@inject NavigationManager Nav
+
+<div class="login-wrap">
+    <div class="login-card">
+        <h2 class="login-title">QRImporter</h2>
+        <p class="login-sub">Acesso ao portal de documentos</p>
+
+        @if (!string.IsNullOrWhiteSpace(_error))
+        {
+            <div class="login-error">@_error</div>
+        }
+
+        <div class="login-field">
+            <label>Utilizador</label>
+            <input type="text"
+                   @bind="_username"
+                   @bind:event="oninput"
+                   @onkeydown="OnKeyDown"
+                   placeholder="nome de utilizador"
+                   disabled="@_loading" />
+        </div>
+
+        <div class="login-field">
+            <label>Password</label>
+            <input type="password"
+                   @bind="_password"
+                   @bind:event="oninput"
+                   @onkeydown="OnKeyDown"
+                   placeholder="password"
+                   disabled="@_loading" />
+        </div>
+
+        <button class="login-btn" @onclick="DoLogin" disabled="@(_loading || !CanSubmit)">
+            @(_loading ? "A entrar…" : "Entrar")
+        </button>
+    </div>
+</div>
 
 @code {
+    private string _username = "";
+    private string _password = "";
+    private string? _error;
+    private bool _loading;
 
+    private bool CanSubmit =>
+        !string.IsNullOrWhiteSpace(_username) &&
+        !string.IsNullOrWhiteSpace(_password);
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && CanSubmit)
+            await DoLogin();
+    }
+
+    private async Task DoLogin()
+    {
+        _error = null;
+        _loading = true;
+
+        try
+        {
+            var ok = await Auth.LoginAsync(_username.Trim(), _password);
+
+            if (ok)
+                Nav.NavigateTo("/");
+            else
+                _error = "Utilizador ou password incorretos.";
+        }
+        finally
+        {
+            _loading = false;
+            _password = ""; // limpar password da memória
+        }
+    }
 }

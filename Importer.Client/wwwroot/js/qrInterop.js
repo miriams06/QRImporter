@@ -14,7 +14,6 @@
             return;
         }
 
-        // Não fazemos fallback pesado aqui automaticamente (para não bloquear UI)
         p.reject(new Error(msg.error || "QR decode failed"));
     };
 
@@ -22,23 +21,49 @@
         return crypto.randomUUID ? crypto.randomUUID() : (Date.now() + "-" + Math.random());
     }
 
-    function normalizeToArrayBuffer(bytes) {
-        // normaliza bytes vindos do Blazor
-        let ab;
-        if (bytes instanceof ArrayBuffer) ab = bytes;
-        else if (bytes && bytes.buffer && typeof bytes.byteOffset === "number")
-            ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-        else
-            ab = bytes?.buffer ?? bytes;
+    /**
+     * Blazor serializa byte[] como base64 quando passado via InvokeAsync.
+     * Normaliza qualquer formato para ArrayBuffer.
+     */
+    function toArrayBuffer(bytes) {
+        if (bytes instanceof ArrayBuffer) return bytes;
 
-        return ab;
+        if (bytes && bytes.buffer instanceof ArrayBuffer)
+            return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+
+        // string base64 — formato que o Blazor usa ao serializar byte[]
+        if (typeof bytes === "string") {
+            const bin = atob(bytes);
+            const ab = new ArrayBuffer(bin.length);
+            const view = new Uint8Array(ab);
+            for (let i = 0; i < bin.length; i++) view[i] = bin.charCodeAt(i);
+            return ab;
+        }
+
+        if (Array.isArray(bytes)) {
+            const ab = new ArrayBuffer(bytes.length);
+            new Uint8Array(ab).set(bytes);
+            return ab;
+        }
+
+        throw new Error("Formato de bytes não reconhecido: " + typeof bytes);
     }
 
-    // --- jsQR fallback pesado ---
-    async function tryJsQrFallback(bytes, contentType) {
-        if (typeof jsQR !== "function") {
-            throw new Error("jsQR não está disponível.");
-        }
+    function loadImage(url) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => resolve(img);
+            img.onerror = reject;
+            img.src = url;
+        });
+    }
+
+    /**
+     * jsQR no main thread — era a lógica principal original.
+     * Lê documentos inteiros com upscale e binarização.
+     */
+    async function tryJsQr(bytes, contentType) {
+        if (typeof jsQR !== "function") return null;
 
         const blob = new Blob([bytes], { type: contentType || "image/png" });
         const imgUrl = URL.createObjectURL(blob);
@@ -50,11 +75,7 @@
             const srcH = img.naturalHeight || img.height;
 
             const isSmall = Math.max(srcW, srcH) <= 450;
-
-            // Para recortes pequenos/densos: upscale forte
             const scale = isSmall ? 10 : 3;
-
-            // Quiet zone "artificial"
             const border = Math.round(Math.min(srcW, srcH) * (isSmall ? 0.30 : 0.10));
 
             const W = (srcW + border * 2) * scale;
@@ -66,15 +87,10 @@
 
             const ctx = canvas.getContext("2d", { willReadFrequently: true });
             ctx.imageSmoothingEnabled = false;
-
-            // fundo branco
             ctx.fillStyle = "#fff";
             ctx.fillRect(0, 0, W, H);
-
-            // desenhar QR ampliado com margem
             ctx.drawImage(img, border * scale, border * scale, srcW * scale, srcH * scale);
 
-            // thresholds típicos para JPEG
             const thresholds = isSmall ? [70, 90, 110, 130, 150, 170] : [100, 130, 160];
 
             function binarizeInPlace(imageData, t) {
@@ -90,61 +106,40 @@
             }
 
             function tryRect(x, y, w, h) {
-                // 1) tenta direto
                 let d = ctx.getImageData(x, y, w, h);
                 let res = jsQR(d.data, d.width, d.height, { inversionAttempts: "attemptBoth" });
                 if (res?.data) return res.data;
 
-                // 2) tenta binarizado (vários thresholds)
                 for (const t of thresholds) {
                     const copy = new ImageData(new Uint8ClampedArray(d.data), d.width, d.height);
                     const bw = binarizeInPlace(copy, t);
-
                     res = jsQR(bw.data, bw.width, bw.height, { inversionAttempts: "attemptBoth" });
                     if (res?.data) return res.data;
                 }
-
                 return null;
             }
 
-            // A) full
             let got = tryRect(0, 0, W, H);
             if (got) return got;
 
-            // B) corta topo (remove texto "ATCUD:...")
             for (const cut of [0.12, 0.18, 0.25]) {
                 const y = Math.floor(H * cut);
                 got = tryRect(0, y, W, H - y);
                 if (got) return got;
             }
 
-            // C) quadrado central (QR é quadrado)
             const side = Math.floor(Math.min(W, H) * 0.90);
-            const cx = Math.floor((W - side) / 2);
-            const cy = Math.floor((H - side) / 2);
-            got = tryRect(cx, cy, side, side);
+            got = tryRect(Math.floor((W - side) / 2), Math.floor((H - side) / 2), side, side);
             if (got) return got;
 
-            // D) mais apertado
             const side2 = Math.floor(Math.min(W, H) * 0.80);
-            const cx2 = Math.floor((W - side2) / 2);
-            const cy2 = Math.floor((H - side2) / 2);
-            got = tryRect(cx2, cy2, side2, side2);
+            got = tryRect(Math.floor((W - side2) / 2), Math.floor((H - side2) / 2), side2, side2);
             if (got) return got;
 
             return null;
         } finally {
             URL.revokeObjectURL(imgUrl);
         }
-    }
-
-    function loadImage(url) {
-        return new Promise((resolve, reject) => {
-            const img = new Image();
-            img.onload = () => resolve(img);
-            img.onerror = reject;
-            img.src = url;
-        });
     }
 
     function decodeWithWorker(ab, contentType, timeoutMs) {
@@ -163,29 +158,35 @@
                 reject: (e) => { clearTimeout(timer); reject(e); }
             });
 
-            // transfere o ArrayBuffer para o worker (rápido)
             worker.postMessage({ id, bytes: ab, contentType }, [ab]);
         });
     }
 
     window.qrInterop = {
-        // modo rápido (default): worker ZXing primeiro (não bloqueia UI)
+        /**
+         * Modo rápido (default):
+         * 1º jsQR no main thread (comportamento original)
+         * 2º worker ZXing como fallback
+         */
         decodeQrFromBytes: async (bytes, contentType, timeoutMs) => {
-            const ab = normalizeToArrayBuffer(bytes);
-            return await decodeWithWorker(ab, contentType, timeoutMs);
+            // jsQR primeiro — era o que funcionava antes
+            const jsqrResult = await tryJsQr(toArrayBuffer(bytes), contentType);
+            if (jsqrResult) return jsqrResult;
+
+            // fallback: worker ZXing
+            // reconverte bytes porque toArrayBuffer pode ter sido transferido
+            return await decodeWithWorker(toArrayBuffer(bytes), contentType, timeoutMs);
         },
 
-        // modo lento: usa o fallback jsQR pesado
-        // (chamar apenas quando o utilizador pedir)
+        /**
+         * Modo agressivo (botão manual):
+         * jsQR + worker ZXing
+         */
         decodeQrFromBytesAggressive: async (bytes, contentType) => {
-            const ab = normalizeToArrayBuffer(bytes);
+            const jsqrResult = await tryJsQr(toArrayBuffer(bytes), contentType);
+            if (jsqrResult) return jsqrResult;
 
-            // tenta jsQR pesado
-            const direct = await tryJsQrFallback(ab, contentType);
-            if (direct) return direct;
-
-            // se falhar, tenta worker como última tentativa
-            return await decodeWithWorker(ab, contentType, 9000);
+            return await decodeWithWorker(toArrayBuffer(bytes), contentType, 9000);
         }
     };
 })();

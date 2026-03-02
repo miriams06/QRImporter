@@ -1,17 +1,51 @@
-﻿@inherits LayoutComponentBase
-<div class="page">
-    <div class="sidebar">
-        <NavMenu />
-    </div>
+@inherits LayoutComponentBase
+@using Importer.Client.Auth
+@using Importer.Client.Components
+@using Microsoft.AspNetCore.Components.Authorization
+@inject ClientAuthService Auth
+@inject NavigationManager Nav
 
-    <main>
-        <div class="top-row px-4">
-            <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
-        </div>
+<div class="app-layout">
+    <header class="app-header">
+        <a class="app-logo" href="/">QRImporter</a>
 
-        <article class="content px-4">
+        <AuthorizeView Context="authCtx">
+            <Authorized>
+                <nav class="app-nav">
+                    <a href="/">Início</a>
+                    <a href="/upload">Novo Documento</a>
+                    <a href="/history">Histórico</a>
+                    <AuthorizeView Roles="Admin" Context="adminCtx">
+                        <Authorized>
+                            <a href="/admin">Admin</a>
+                        </Authorized>
+                    </AuthorizeView>
+                </nav>
+                <div class="app-user">
+                    <span>@authCtx.User.Identity?.Name</span>
+                    <span class="app-role">(@authCtx.User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value)</span>
+                    <button @onclick="Logout">Sair</button>
+                </div>
+            </Authorized>
+            <NotAuthorized>
+                @* Não mostrar nav se não autenticado *@
+            </NotAuthorized>
+        </AuthorizeView>
+    </header>
+
+    <main class="app-main">
+        <article>
             @Body
         </article>
-        <DevTools />
     </main>
 </div>
+
+<DevTools />
+
+@code {
+    private async Task Logout()
+    {
+        await Auth.LogoutAsync();
+        Nav.NavigateTo("/login");
+    }
+}

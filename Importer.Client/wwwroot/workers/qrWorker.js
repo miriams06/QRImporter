@@ -31,7 +31,7 @@ function invertRGBA(img) {
 
 function decodeCore(img) {
     const w = img.width, h = img.height;
-
+    console.log("decodeCore a tentar:", w, "x", h);
     const rgbaClamped = img.data;
     const rgba = new Uint8Array(
         rgbaClamped.buffer.slice(rgbaClamped.byteOffset, rgbaClamped.byteOffset + rgbaClamped.byteLength)
@@ -59,6 +59,7 @@ function decodeCore(img) {
 }
 
 self.onmessage = async (e) => {
+    //console.log("worker recebeu:", typeof e.data.bytes, e.data.bytes?.constructor?.name, e.data.bytes?.byteLength ?? e.data.bytes?.length);
     const { id, bytes, contentType } = e.data;
     const started = performance.now();
     const maxMs = 8000;
@@ -69,11 +70,13 @@ self.onmessage = async (e) => {
 
         const blob = new Blob([ab], { type: contentType || "image/png" });
         const imageBitmap = await createImageBitmap(blob);
+        //console.log("imageBitmap criado:", imageBitmap.width, "x", imageBitmap.height, "contentType:", contentType);
 
         const small = Math.max(imageBitmap.width, imageBitmap.height) <= 420;
+        const isFullDoc = Math.max(imageBitmap.width, imageBitmap.height) >= 800;
 
         // scales: agressivo para recorte pequeno, leve para foto
-        const scales = small ? [8, 12] : [1, 2];
+        const scales = small ? [8, 12] : isFullDoc ? [1, 2, 3] : [1, 2];
 
         for (const scale of scales) {
             if (timeUp()) {
@@ -95,7 +98,7 @@ self.onmessage = async (e) => {
             let img = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
             // rotações: recorte tenta 4, foto tenta 1
-            const rotations = small ? 4 : 1;
+            const rotations = small ? 4 : isFullDoc ? 2 : 1;
 
             let cur = img;
             for (let r = 0; r < rotations; r++) {

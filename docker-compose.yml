@@ -1,4 +1,5 @@
 services:
+
   minio:
     image: minio/minio:latest
     container_name: importer-minio
@@ -12,5 +13,18 @@ services:
     volumes:
       - minio_data:/data
 
+  postgres:
+    image: postgres:16-alpine
+    container_name: importer-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: importer
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
 volumes:
   minio_data:
+  postgres_data:

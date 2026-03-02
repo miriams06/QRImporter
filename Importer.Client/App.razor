@@ -1,20 +1,26 @@
-﻿@inject Importer.Client.Services.ConnectivityService Connectivity
+@inject Importer.Client.Services.ConnectivityService Connectivity
 @inject Importer.Client.Services.SyncAutoRunner SyncAutoRunner
 @inject Importer.Client.Services.FeatureFlagsService Flags
 
-<Router AppAssembly="@typeof(App).Assembly">
-    <Found Context="routeData">
-        <RouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)" />
-        <FocusOnNavigate RouteData="@routeData" Selector="h1" />
-    </Found>
-    <NotFound>
-        <PageTitle>Not found</PageTitle>
-        <LayoutView Layout="@typeof(MainLayout)">
-            <p role="alert">Sorry, there's nothing at this address.</p>
-        </LayoutView>
-    </NotFound>
-</Router>
-@code{
+@* CascadingAuthenticationState fornece Task<AuthenticationState> em cascata
+   a todos os componentes filhos (AuthorizeView, RouteGuard, [Authorize], etc.)
+   Tem de envolver o Router para cobrir toda a árvore de componentes. *@
+<CascadingAuthenticationState>
+    <Router AppAssembly="@typeof(App).Assembly">
+        <Found Context="routeData">
+            <RouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)" />
+            <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+        </Found>
+        <NotFound>
+            <PageTitle>Not found</PageTitle>
+            <LayoutView Layout="@typeof(MainLayout)">
+                <p role="alert">Sorry, there's nothing at this address.</p>
+            </LayoutView>
+        </NotFound>
+    </Router>
+</CascadingAuthenticationState>
+
+@code {
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender) return;
