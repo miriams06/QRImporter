@@ -7,7 +7,7 @@
 @inject SyncService SyncService
 @inject DocumentStateService DocumentState
 @inject NavigationManager Nav
-@inject IJSRuntime JS
+@inject QrDecodeService QrDecoder
 
 <PageTitle>Validar Documento</PageTitle>
 
@@ -84,12 +84,6 @@
 
     private CancellationTokenSource? _qrCts;
     private int _qrRunId = 0;
-
-    public class PdfDecodeResult
-    {
-        public int Pages { get; set; }
-        public string? QrText { get; set; }
-    }
 
     private async Task CancelQrAsync()
     {
@@ -298,57 +292,33 @@
                 _message = "Sem ficheiro carregado.";
                 return;
             }
-
-            string? payload = null;
-
-            if (DocumentState.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
-            {
-                // modo rápido: worker ZXing (timeout 6s)
-                payload = await JS.InvokeAsync<string>(
-                    "qrInterop.decodeQrFromBytes",
-                    DocumentState.FileBytes,
-                    DocumentState.ContentType,
-                    6000
-                );
-            }
-            else if (DocumentState.ContentType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase))
-            {
-                var base64 = Convert.ToBase64String(DocumentState.FileBytes);
-
-                // DPI moderado para decode (mais rápido)
-                var result = await JS.InvokeAsync<PdfDecodeResult>(
-                    "pdfInterop.renderAndDecodeFromBase64",
-                    base64,
-                    "pdfCanvas",
-                    1,
-                    160
-                );
-
-                payload = result?.QrText;
-            }
-            else
-            {
-                _message = "Tipo de ficheiro não suportado.";
-                return;
-            }
+            var decode = await QrDecoder.DecodeAsync(
+                DocumentState.FileBytes,
+                DocumentState.ContentType,
+                token);
 
             if (token.IsCancellationRequested || runId != _qrRunId)
                 return;
 
-            payload = (payload ?? "").Replace("\r", "").Replace("\n", "").Trim();
-
-            if (string.IsNullOrWhiteSpace(payload))
+            if (decode.Success)
             {
-                _message = "QR não encontrado. (Se for difícil, tenta o modo agressivo.)";
+                var payload = (decode.Payload ?? string.Empty).Replace("\r", "").Replace("\n", "").Trim();
+                _doc.QrRawPayload = payload;
+                QrDecodedText = payload;
+
+                RunQrParseAndApply(payload);
+
+                _message = $"QR lido e campos preenchidos em {decode.DurationMs} ms ({decode.Strategy}, tentativas: {decode.Attempts}).";
+            }
+            else if (string.Equals(decode.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase))
+            {
+                _message = "Leitura cancelada.";
+            }
+            else
+            {
+                _message = $"QR não encontrado ({decode.Strategy}, tentativas: {decode.Attempts}, {decode.DurationMs} ms).";
                 return;
             }
-
-            _doc.QrRawPayload = payload;
-            QrDecodedText = payload;
-
-            RunQrParseAndApply(payload);
-
-            _message = "QR lido e campos preenchidos.";
         }
         catch (Exception ex)
         {
