@@ -1,4 +1,4 @@
-﻿@page "/validate/{DocumentId:guid?}"
+@page "/validate/{DocumentId:guid?}"
 @using Importer.Client.Services
 @using Importer.Core.QR
 @using Importer.Client.Models
@@ -46,6 +46,24 @@
         }
     </div>
 
+
+    @if (DocumentState.ContentType?.StartsWith("image/", StringComparison.OrdinalIgnoreCase) == true)
+    {
+        <details style="margin-top:10px;">
+            <summary><b>Fallback manual (Crop QR)</b></summary>
+            <p style="margin:8px 0;">Define a área em percentagem da imagem (0-100) e tenta reprocessar só esse recorte.</p>
+            <div style="display:grid; grid-template-columns:repeat(4, minmax(110px, 1fr)); gap:8px; max-width:620px;">
+                <label>X %<input type="number" min="0" max="100" step="1" @bind="_cropXPct" /></label>
+                <label>Y %<input type="number" min="0" max="100" step="1" @bind="_cropYPct" /></label>
+                <label>Largura %<input type="number" min="1" max="100" step="1" @bind="_cropWPct" /></label>
+                <label>Altura %<input type="number" min="1" max="100" step="1" @bind="_cropHPct" /></label>
+            </div>
+            <div style="margin-top:8px;">
+                <button type="button" @onclick="ReprocessQrCropAsync" disabled="@(_saving || _readingQr)">Reprocessar QR (Crop)</button>
+            </div>
+        </details>
+    }
+
     @if (!string.IsNullOrWhiteSpace(QrDecodedText))
     {
         <hr />
@@ -85,6 +103,11 @@
     private CancellationTokenSource? _qrCts;
     private int _qrRunId = 0;
     private bool _loadedFromHistory;
+
+    private double _cropXPct = 55;
+    private double _cropYPct = 55;
+    private double _cropWPct = 40;
+    private double _cropHPct = 40;
 
     private async Task CancelQrAsync()
     {
@@ -330,6 +353,72 @@
         catch (Exception ex)
         {
             _message = $"Erro a ler QR: {ex.Message}";
+        }
+        finally
+        {
+            if (runId == _qrRunId)
+            {
+                _readingQr = false;
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+    }
+
+
+    private async Task ReprocessQrCropAsync()
+    {
+        if (_readingQr) return;
+
+        _readingQr = true;
+        _qrCts?.Cancel();
+        _qrCts = new CancellationTokenSource();
+
+        var runId = ++_qrRunId;
+        var token = _qrCts.Token;
+
+        _message = "A ler QR (crop manual)...";
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            if (DocumentState.FileBytes is null || string.IsNullOrWhiteSpace(DocumentState.ContentType))
+            {
+                _message = "Sem ficheiro carregado.";
+                return;
+            }
+
+            var decode = await QrDecoder.DecodeFromCropAsync(
+                DocumentState.FileBytes,
+                DocumentState.ContentType,
+                _cropXPct,
+                _cropYPct,
+                _cropWPct,
+                _cropHPct,
+                token);
+
+            if (token.IsCancellationRequested || runId != _qrRunId)
+                return;
+
+            if (decode.Success)
+            {
+                var payload = (decode.Payload ?? string.Empty).Replace("\r", "").Replace("\n", "").Trim();
+                _doc.QrRawPayload = payload;
+                QrDecodedText = payload;
+                RunQrParseAndApply(payload);
+                _message = $"QR lido via crop em {decode.DurationMs} ms.";
+            }
+            else if (string.Equals(decode.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase))
+            {
+                _message = "Leitura cancelada.";
+            }
+            else
+            {
+                _message = "Não foi possível ler QR com este crop. Ajusta X/Y/Largura/Altura e tenta novamente.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _message = $"Erro no crop QR: {ex.Message}";
         }
         finally
         {

@@ -14,6 +14,89 @@ namespace Importer.Client.Services
 
         public QrDecodeService(IJSRuntime js) => _js = js;
 
+        public async Task<QrResult> DecodeFromCropAsync(
+            byte[] fileBytes,
+            string contentType,
+            double xPct,
+            double yPct,
+            double wPct,
+            double hPct,
+            CancellationToken cancellationToken = default)
+        {
+            var sw = Stopwatch.StartNew();
+            var result = new QrResult { Strategy = "image-crop" };
+
+            if (fileBytes is null || fileBytes.Length == 0 || string.IsNullOrWhiteSpace(contentType))
+            {
+                result.Status = "UNREADABLE";
+                result.Strategy = "invalid-input";
+                result.DurationMs = sw.ElapsedMilliseconds;
+                return result;
+            }
+
+            if (!contentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+            {
+                result.Status = "UNREADABLE";
+                result.Strategy = "crop-only-image";
+                result.DurationMs = sw.ElapsedMilliseconds;
+                return result;
+            }
+
+            try
+            {
+                result.Attempts = 1;
+                var payload = await _js.InvokeAsync<string>(
+                    "qrInterop.decodeQrFromBytesCrop",
+                    cancellationToken,
+                    fileBytes,
+                    contentType,
+                    new { xPct, yPct, wPct, hPct },
+                    9000);
+
+                if (!string.IsNullOrWhiteSpace(payload))
+                {
+                    result.Payload = payload;
+                    result.Status = "OK";
+                }
+                else
+                {
+                    result.Status = "NOT_FOUND";
+                }
+
+            try
+            {
+                if (contentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+                {
+                    return await DecodeImageAsync(fileBytes, contentType, sw, cancellationToken);
+                }
+
+                if (contentType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase))
+                {
+                    return await DecodePdfAsync(fileBytes, sw, cancellationToken);
+                }
+
+                result.Status = "UNREADABLE";
+                result.Strategy = "unsupported-content-type";
+                result.DurationMs = sw.ElapsedMilliseconds;
+                return result;
+            }
+            catch (OperationCanceledException)
+            {
+                result.Status = "CANCELLED";
+                result.Strategy = "cancelled";
+                result.DurationMs = sw.ElapsedMilliseconds;
+                return result;
+            }
+            catch
+            {
+                result.Status = "UNREADABLE";
+                result.Strategy = "crop-exception";
+                result.Strategy = "exception";
+                result.DurationMs = sw.ElapsedMilliseconds;
+                return result;
+            }
+        }
+
         public async Task<QrResult> DecodeAsync(byte[] fileBytes, string contentType, CancellationToken cancellationToken = default)
         {
             var sw = Stopwatch.StartNew();
