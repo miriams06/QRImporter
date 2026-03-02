@@ -84,6 +84,7 @@
 
     private CancellationTokenSource? _qrCts;
     private int _qrRunId = 0;
+    private bool _loadedFromHistory;
 
     private async Task CancelQrAsync()
     {
@@ -118,6 +119,7 @@
             RunQrParseAndApply(qr);
 
             DocumentState.ClearQrText();
+            _loadedFromHistory = false;
             return;
         }
 
@@ -133,6 +135,7 @@
             }
 
             _doc = doc;
+            _loadedFromHistory = true;
 
             if (DocumentState.FileBytes is null)
             {
@@ -156,6 +159,7 @@
         }
 
         _message = null;
+        _loadedFromHistory = false;
         _doc.Source = "Upload";
     }
 
@@ -163,6 +167,9 @@
     {
         if (DocumentState.FileBytes is null || string.IsNullOrWhiteSpace(DocumentState.ContentType))
             return;
+        if (_loadedFromHistory)
+            return;
+
 
         if (!(DocumentState.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)
            || DocumentState.ContentType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase)))

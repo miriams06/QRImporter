@@ -1,4 +1,4 @@
-﻿@page "/history"
+@page "/history"
 @using Importer.Client.Models
 @inject Importer.Client.Services.IndexedDbService IndexedDb
 @inject NavigationManager Nav
@@ -15,53 +15,123 @@ else if (_docs.Count == 0)
 }
 else
 {
-    <table class="table" style="width:100%;">
-        <thead>
-        <tr>
-            <th>Data doc.</th>
-            <th>Tipo</th>
-            <th>Emitente</th>
-            <th>ATCUD</th>
-            <th>Série/Nº</th>
-            <th>Estado</th>
-            <th></th>
-        </tr>
-        </thead>
-        <tbody>
-        @foreach (var d in _docs)
-        {
+    <fieldset style="margin-bottom:12px; padding:12px; border:1px solid #ddd; border-radius:8px;">
+        <legend style="padding:0 6px; font-weight:600;">Filtros</legend>
+
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:8px; align-items:end;">
+            <div>
+                <label>Estado</label>
+                <select @bind="_statusFilter" style="width:100%;">
+                    <option value="">Todos</option>
+                    @foreach (var s in _statusValues)
+                    {
+                        <option value="@s">@s</option>
+                    }
+                </select>
+            </div>
+
+            <div>
+                <label>Data inicial</label>
+                <input type="date" @bind="_fromDate" style="width:100%;" />
+            </div>
+
+            <div>
+                <label>Data final</label>
+                <input type="date" @bind="_toDate" style="width:100%;" />
+            </div>
+
+            <div>
+                <label>NIF</label>
+                <input @bind="_nifFilter" @bind:event="oninput" placeholder="Ex: 509123456" style="width:100%;" />
+            </div>
+
+            <div>
+                <label>Série/Número</label>
+                <input @bind="_seriesNumberFilter" @bind:event="oninput" placeholder="Ex: FT 1/23" style="width:100%;" />
+            </div>
+
+            <div>
+                <label>ATCUD</label>
+                <input @bind="_atcudFilter" @bind:event="oninput" placeholder="Ex: ABCD-123" style="width:100%; font-family:monospace;" />
+            </div>
+
+            <div>
+                <button type="button" @onclick="ClearFilters">Limpar filtros</button>
+            </div>
+        </div>
+    </fieldset>
+
+    @if (FilteredDocs.Count == 0)
+    {
+        <p><em>Sem resultados para os filtros atuais.</em></p>
+    }
+    else
+    {
+        <table class="table" style="width:100%;">
+            <thead>
             <tr>
-                <td>@(d.DocumentDate == default ? "-" : d.DocumentDate.ToLocalTime().ToString("yyyy-MM-dd"))</td>
-                <td>@(string.IsNullOrWhiteSpace(d.DocumentType) ? "-" : d.DocumentType)</td>
-
-                <td>
-                    @if (!string.IsNullOrWhiteSpace(d.IssuerName))
-                    {
-                        <div>@d.IssuerName</div>
-                        <div style="opacity:.7; font-size:12px;">NIF: @d.IssuerTaxId</div>
-                    }
-                    else
-                    {
-                        <span>@(string.IsNullOrWhiteSpace(d.IssuerTaxId) ? "-" : d.IssuerTaxId)</span>
-                    }
-                </td>
-
-                <td style="font-family: monospace;">@(string.IsNullOrWhiteSpace(d.ATCUD) ? "-" : d.ATCUD)</td>
-                <td>@(string.IsNullOrWhiteSpace(d.Series) && string.IsNullOrWhiteSpace(d.DocumentNumber) ? "-" : $"{d.Series}/{d.DocumentNumber}")</td>
-                <td>@d.SyncStatus</td>
-
-                <td style="text-align:right;">
-                    <button @onclick="() => Open(d.Id)">Ver</button>
-                </td>
+                <th>Data doc.</th>
+                <th>Tipo</th>
+                <th>Emitente</th>
+                <th>ATCUD</th>
+                <th>Série/Nº</th>
+                <th>Estado</th>
+                <th></th>
             </tr>
-        }
-        </tbody>
-    </table>
+            </thead>
+            <tbody>
+            @foreach (var d in FilteredDocs)
+            {
+                <tr>
+                    <td>@(d.DocumentDate == default ? "-" : d.DocumentDate.ToLocalTime().ToString("yyyy-MM-dd"))</td>
+                    <td>@(string.IsNullOrWhiteSpace(d.DocumentType) ? "-" : d.DocumentType)</td>
+
+                    <td>
+                        @if (!string.IsNullOrWhiteSpace(d.IssuerName))
+                        {
+                            <div>@d.IssuerName</div>
+                            <div style="opacity:.7; font-size:12px;">NIF: @d.IssuerTaxId</div>
+                        }
+                        else
+                        {
+                            <span>@(string.IsNullOrWhiteSpace(d.IssuerTaxId) ? "-" : d.IssuerTaxId)</span>
+                        }
+                    </td>
+
+                    <td style="font-family: monospace;">@(string.IsNullOrWhiteSpace(d.ATCUD) ? "-" : d.ATCUD)</td>
+                    <td>@(string.IsNullOrWhiteSpace(d.Series) && string.IsNullOrWhiteSpace(d.DocumentNumber) ? "-" : $"{d.Series}/{d.DocumentNumber}")</td>
+                    <td>@d.SyncStatus</td>
+
+                    <td style="text-align:right;">
+                        <button @onclick="() => Open(d.Id)">Ver</button>
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    }
 }
 
 @code {
     private bool _loading = true;
     private readonly List<LocalDocument> _docs = new();
+
+    private readonly string[] _statusValues = Enum.GetNames<SyncStatus>();
+
+    private string _statusFilter = string.Empty;
+    private string _nifFilter = string.Empty;
+    private string _seriesNumberFilter = string.Empty;
+    private string _atcudFilter = string.Empty;
+    private DateTime? _fromDate;
+    private DateTime? _toDate;
+
+    private List<LocalDocument> FilteredDocs => _docs
+        .Where(MatchStatus)
+        .Where(MatchDateRange)
+        .Where(MatchNif)
+        .Where(MatchSeriesNumber)
+        .Where(MatchAtcud)
+        .ToList();
 
     private void Open(Guid id) => Nav.NavigateTo($"/validate/{id}");
 
@@ -70,5 +140,55 @@ else
         _docs.Clear();
         _docs.AddRange(await IndexedDb.GetAllDocumentsAsync());
         _loading = false;
+    }
+
+    private bool MatchStatus(LocalDocument d)
+        => string.IsNullOrWhiteSpace(_statusFilter) || d.SyncStatus.ToString().Equals(_statusFilter, StringComparison.OrdinalIgnoreCase);
+
+    private bool MatchDateRange(LocalDocument d)
+    {
+        if (d.DocumentDate == default)
+            return _fromDate is null && _toDate is null;
+
+        var day = d.DocumentDate.Date;
+
+        if (_fromDate is not null && day < _fromDate.Value.Date)
+            return false;
+
+        if (_toDate is not null && day > _toDate.Value.Date)
+            return false;
+
+        return true;
+    }
+
+    private bool MatchNif(LocalDocument d)
+        => string.IsNullOrWhiteSpace(_nifFilter)
+           || (d.IssuerTaxId?.Contains(_nifFilter.Trim(), StringComparison.OrdinalIgnoreCase) ?? false);
+
+    private bool MatchSeriesNumber(LocalDocument d)
+    {
+        if (string.IsNullOrWhiteSpace(_seriesNumberFilter))
+            return true;
+
+        var q = _seriesNumberFilter.Trim();
+        var composed = $"{d.Series}/{d.DocumentNumber}";
+
+        return (d.Series?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false)
+               || (d.DocumentNumber?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false)
+               || composed.Contains(q, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool MatchAtcud(LocalDocument d)
+        => string.IsNullOrWhiteSpace(_atcudFilter)
+           || (d.ATCUD?.Contains(_atcudFilter.Trim(), StringComparison.OrdinalIgnoreCase) ?? false);
+
+    private void ClearFilters()
+    {
+        _statusFilter = string.Empty;
+        _nifFilter = string.Empty;
+        _seriesNumberFilter = string.Empty;
+        _atcudFilter = string.Empty;
+        _fromDate = null;
+        _toDate = null;
     }
 }
