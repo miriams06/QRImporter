@@ -21,7 +21,7 @@
                          FileName="@DocumentState.FileName" />
     </details>
 
-    <ValidationForm @key="_formKey" Model="@_doc" Disabled="@_saving" />
+    <ValidationForm @key="_formKey" Model="@_doc" Disabled="@_saving" OnFieldEdited="OnFieldEditedAsync" />
 
     @if (!string.IsNullOrWhiteSpace(_message))
     {
@@ -186,6 +186,23 @@
         await ReprocessQrAsync();
     }
 
+
+    private readonly HashSet<string> _manuallyEditedFields = new(StringComparer.Ordinal);
+
+    private Task OnFieldEditedAsync(string fieldName)
+    {
+        _manuallyEditedFields.Add(fieldName);
+        return Task.CompletedTask;
+    }
+
+    private void SetIfNotEdited(string fieldName, Action setter)
+    {
+        if (_manuallyEditedFields.Contains(fieldName))
+            return;
+
+        setter();
+    }
+
     private static DateTime? TryParseQrDate(string? yyyymmdd)
     {
         if (string.IsNullOrWhiteSpace(yyyymmdd) || yyyymmdd.Length != 8) return null;
@@ -213,15 +230,15 @@
 
     private void ApplyQrToLocalDocument(QrData d)
     {
-        _doc.IssuerTaxId = d.A ?? "";
-        _doc.DocumentType = d.D ?? "";
-        _doc.Series = ExtractSeriesFromG(d.G);
-        _doc.ATCUD = d.H ?? "";
-        _doc.DocumentNumber = ExtractNumberFromAtcud(d.H);
+        SetIfNotEdited(nameof(LocalDocument.IssuerTaxId), () => _doc.IssuerTaxId = d.A ?? "");
+        SetIfNotEdited(nameof(LocalDocument.DocumentType), () => _doc.DocumentType = d.D ?? "");
+        SetIfNotEdited(nameof(LocalDocument.Series), () => _doc.Series = ExtractSeriesFromG(d.G));
+        SetIfNotEdited(nameof(LocalDocument.ATCUD), () => _doc.ATCUD = d.H ?? "");
+        SetIfNotEdited(nameof(LocalDocument.DocumentNumber), () => _doc.DocumentNumber = ExtractNumberFromAtcud(d.H));
 
         var dt = TryParseQrDate(d.F);
         if (dt is not null)
-            _doc.DocumentDate = dt.Value;
+            SetIfNotEdited(nameof(LocalDocument.DocumentDate), () => _doc.DocumentDate = dt.Value);
 
         _formKey++;
     }
