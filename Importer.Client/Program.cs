@@ -54,6 +54,7 @@ builder.Services.AddScoped<IndexedDbService>();
 builder.Services.AddScoped<SyncService>();
 builder.Services.AddScoped<SyncAutoRunner>();
 builder.Services.AddScoped<PdfRenderService>();
+builder.Services.AddScoped<QrDecodeService>();
 
 // ════════════════════════════════════════════════════════════════════════════
 var host = builder.Build();
