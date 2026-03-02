@@ -142,6 +142,55 @@
         }
     }
 
+
+
+    async function cropImageBytesByPercent(bytes, contentType, crop) {
+        const blob = new Blob([bytes], { type: contentType || "image/png" });
+        const imgUrl = URL.createObjectURL(blob);
+
+        try {
+            const img = await loadImage(imgUrl);
+            const srcW = img.naturalWidth || img.width;
+            const srcH = img.naturalHeight || img.height;
+
+            const xPct = Math.max(0, Math.min(100, Number(crop?.xPct ?? 0)));
+            const yPct = Math.max(0, Math.min(100, Number(crop?.yPct ?? 0)));
+            const wPct = Math.max(1, Math.min(100, Number(crop?.wPct ?? 100)));
+            const hPct = Math.max(1, Math.min(100, Number(crop?.hPct ?? 100)));
+
+            const x = Math.floor(srcW * (xPct / 100));
+            const y = Math.floor(srcH * (yPct / 100));
+            const w = Math.max(1, Math.floor(srcW * (wPct / 100)));
+            const h = Math.max(1, Math.floor(srcH * (hPct / 100)));
+
+            const safeW = Math.min(w, srcW - x);
+            const safeH = Math.min(h, srcH - y);
+
+            if (safeW <= 0 || safeH <= 0)
+                throw new Error("Crop inválido (fora da imagem).");
+
+            const canvas = document.createElement("canvas");
+            canvas.width = safeW;
+            canvas.height = safeH;
+            const ctx = canvas.getContext("2d", { willReadFrequently: true });
+            ctx.fillStyle = "#fff";
+            ctx.fillRect(0, 0, safeW, safeH);
+            ctx.drawImage(img, x, y, safeW, safeH, 0, 0, safeW, safeH);
+
+            return await new Promise((resolve, reject) => {
+                canvas.toBlob(async (b) => {
+                    if (!b) {
+                        reject(new Error("Não foi possível gerar crop da imagem."));
+                        return;
+                    }
+                    resolve(await b.arrayBuffer());
+                }, "image/png", 1.0);
+            });
+        } finally {
+            URL.revokeObjectURL(imgUrl);
+        }
+    }
+
     function decodeWithWorker(ab, contentType, timeoutMs) {
         const ms = (typeof timeoutMs === "number" && timeoutMs > 0) ? timeoutMs : 6000;
 
@@ -187,6 +236,16 @@
             if (jsqrResult) return jsqrResult;
 
             return await decodeWithWorker(toArrayBuffer(bytes), contentType, 9000);
+        },
+
+        decodeQrFromBytesCrop: async (bytes, contentType, crop, timeoutMs) => {
+            const src = toArrayBuffer(bytes);
+            const cropped = await cropImageBytesByPercent(src, contentType, crop);
+
+            const jsqrResult = await tryJsQr(cropped, "image/png");
+            if (jsqrResult) return jsqrResult;
+
+            return await decodeWithWorker(cropped, "image/png", timeoutMs || 9000);
         }
     };
 })();

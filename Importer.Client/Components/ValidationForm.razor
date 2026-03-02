@@ -1,4 +1,4 @@
-﻿@using Importer.Client.Models
+@using Importer.Client.Models
 @using Microsoft.AspNetCore.Components.Forms
 
 @if (Model is null)
@@ -12,27 +12,27 @@
 
     <div>
         <label>Tipo Documento</label>
-        <InputText @bind-Value="Model.DocumentType" disabled="@(Disabled)" />
+        <input @bind="Model.DocumentType" @bind:event="oninput" @bind:after='async () => await NotifyEditedAsync(nameof(LocalDocument.DocumentType))' disabled="@(Disabled)" />
     </div>
 
     <div>
         <label>Série</label>
-        <InputText @bind-Value="Model.Series" disabled="@(Disabled)" />
+        <input @bind="Model.Series" @bind:event="oninput" @bind:after='async () => await NotifyEditedAsync(nameof(LocalDocument.Series))' disabled="@(Disabled)" />
     </div>
 
     <div>
         <label>Número</label>
-        <InputText @bind-Value="Model.DocumentNumber" disabled="@(Disabled)" />
+        <input @bind="Model.DocumentNumber" @bind:event="oninput" @bind:after='async () => await NotifyEditedAsync(nameof(LocalDocument.DocumentNumber))' disabled="@(Disabled)" />
     </div>
 
     <div>
         <label>NIF Emissor</label>
-        <InputText @bind-Value="Model.IssuerTaxId" disabled="@(Disabled)" />
+        <input @bind="Model.IssuerTaxId" @bind:event="oninput" @bind:after='async () => await NotifyEditedAsync(nameof(LocalDocument.IssuerTaxId))' disabled="@(Disabled)" />
     </div>
 
     <div>
         <label>ATCUD</label>
-        <InputText @bind-Value="Model.ATCUD" disabled="@(Disabled)" />
+        <input @bind="Model.ATCUD" @bind:event="oninput" @bind:after='async () => await NotifyEditedAsync(nameof(LocalDocument.ATCUD))' disabled="@(Disabled)" />
     </div>
 
     <ValidationSummary />
@@ -41,4 +41,13 @@
 @code {
     [Parameter] public LocalDocument? Model { get; set; }
     [Parameter] public bool Disabled { get; set; }
+    [Parameter] public EventCallback<string> OnFieldEdited { get; set; }
+
+    private async Task NotifyEditedAsync(string fieldName)
+    {
+        if (Disabled || !OnFieldEdited.HasDelegate)
+            return;
+
+        await OnFieldEdited.InvokeAsync(fieldName);
+    }
 }
