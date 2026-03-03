@@ -8,8 +8,17 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Minio;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Host.UseSerilog((context, services, loggerConfig) =>
+{
+    loggerConfig
+        .ReadFrom.Configuration(context.Configuration)
+        .ReadFrom.Services(services)
+        .Enrich.FromLogContext();
+});
 
 // ── Controllers + Swagger (existente) ──────────────────────────────────────
 builder.Services.AddControllers();
@@ -96,6 +105,8 @@ builder.Services.AddCors(o =>
 
 // ════════════════════════════════════════════════════════════════════════════
 var app = builder.Build();
+
+app.UseSerilogRequestLogging();
 
 // ── Migrations automáticas em Development (NOVO) ───────────────────────────
 if (app.Environment.IsDevelopment())
