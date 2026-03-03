@@ -1,6 +1,7 @@
 @page "/history"
 @using Importer.Client.Models
 @inject Importer.Client.Services.IndexedDbService IndexedDb
+@inject Importer.Client.Services.SyncService SyncService
 @inject NavigationManager Nav
 
 <h3>Histórico</h3>
@@ -55,8 +56,9 @@ else
                 <input @bind="_atcudFilter" @bind:event="oninput" placeholder="Ex: ABCD-123" style="width:100%; font-family:monospace;" />
             </div>
 
-            <div>
+            <div style="display:flex; gap:6px; flex-wrap:wrap;">
                 <button type="button" @onclick="ClearFilters">Limpar filtros</button>
+                <button type="button" @onclick="TrySyncNowAsync" disabled="@_busySync">Sync agora</button>
             </div>
         </div>
     </fieldset>
@@ -76,12 +78,15 @@ else
                 <th>ATCUD</th>
                 <th>Série/Nº</th>
                 <th>Estado</th>
+                <th>Detalhe Sync</th>
                 <th></th>
             </tr>
             </thead>
             <tbody>
             @foreach (var d in FilteredDocs)
             {
+                _outboxByDoc.TryGetValue(d.Id, out var outbox);
+
                 <tr>
                     <td>@(d.DocumentDate == default ? "-" : d.DocumentDate.ToLocalTime().ToString("yyyy-MM-dd"))</td>
                     <td>@(string.IsNullOrWhiteSpace(d.DocumentType) ? "-" : d.DocumentType)</td>
@@ -100,9 +105,33 @@ else
 
                     <td style="font-family: monospace;">@(string.IsNullOrWhiteSpace(d.ATCUD) ? "-" : d.ATCUD)</td>
                     <td>@(string.IsNullOrWhiteSpace(d.Series) && string.IsNullOrWhiteSpace(d.DocumentNumber) ? "-" : $"{d.Series}/{d.DocumentNumber}")</td>
-                    <td>@d.SyncStatus</td>
+                    <td><span style="@GetStatusBadgeStyle(d.SyncStatus)">@d.SyncStatus</span></td>
 
-                    <td style="text-align:right;">
+                    <td style="max-width:260px; font-size:12px;">
+                        @if (outbox is null)
+                        {
+                            <span style="opacity:.7;">Sem item na outbox</span>
+                        }
+                        else
+                        {
+                            <div>Tentativas: <b>@outbox.AttemptCount</b></div>
+                            <div>Próxima: @outbox.NextAttemptAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</div>
+                            @if (!string.IsNullOrWhiteSpace(outbox.LastError))
+                            {
+                                <div style="color:#a33;" title="@outbox.LastError">Erro: @ShortError(outbox.LastError)</div>
+                            }
+                            @if (outbox.IsPermanentError)
+                            {
+                                <div style="color:#a33;">Erro permanente</div>
+                            }
+                        }
+                    </td>
+
+                    <td style="text-align:right; white-space:nowrap;">
+                        @if (outbox is not null)
+                        {
+                            <button type="button" @onclick="() => RetryDocAsync(d.Id)" disabled="@_busySync">Repetir sync</button>
+                        }
                         <button @onclick="() => Open(d.Id)">Ver</button>
                     </td>
                 </tr>
@@ -114,7 +143,27 @@ else
 
 @code {
     private bool _loading = true;
+    private bool _busySync;
+
     private readonly List<LocalDocument> _docs = new();
+    private readonly Dictionary<Guid, OutboxItem> _outboxByDoc = new();
+
+    private readonly string[] _statusValues = Enum.GetNames<SyncStatus>();
+
+    private string _statusFilter = string.Empty;
+    private string _nifFilter = string.Empty;
+    private string _seriesNumberFilter = string.Empty;
+    private string _atcudFilter = string.Empty;
+    private DateTime? _fromDate;
+    private DateTime? _toDate;
+
+    private List<LocalDocument> FilteredDocs => _docs
+        .Where(MatchStatus)
+        .Where(MatchDateRange)
+        .Where(MatchNif)
+        .Where(MatchSeriesNumber)
+        .Where(MatchAtcud)
+        .ToList();
 
     private readonly string[] _statusValues = Enum.GetNames<SyncStatus>();
 
@@ -137,9 +186,62 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        await LoadAsync();
+    }
+
+    /// <summary>
+    /// Carrega documentos + estado da outbox para o ecrã ficar explicativo.
+    /// </summary>
+    private async Task LoadAsync()
+    {
+        _loading = true;
+
         _docs.Clear();
         _docs.AddRange(await IndexedDb.GetAllDocumentsAsync());
+
+        _outboxByDoc.Clear();
+        var outbox = await IndexedDb.GetAllOutboxAsync();
+        foreach (var item in outbox)
+            _outboxByDoc[item.DocumentId] = item;
+
         _loading = false;
+    }
+
+    /// <summary>
+    /// Tenta sincronização global imediata e refresca o estado apresentado.
+    /// </summary>
+    private async Task TrySyncNowAsync()
+    {
+        if (_busySync) return;
+        _busySync = true;
+        try
+        {
+            await SyncService.SyncPendingAsync();
+            await LoadAsync();
+        }
+        finally
+        {
+            _busySync = false;
+        }
+    }
+
+    /// <summary>
+    /// Força reenvio de um documento com erro (incluindo erro permanente) e tenta sync.
+    /// </summary>
+    private async Task RetryDocAsync(Guid id)
+    {
+        if (_busySync) return;
+        _busySync = true;
+        try
+        {
+            await IndexedDb.ForceRetryOutboxAsync(id);
+            await SyncService.SyncPendingAsync();
+            await LoadAsync();
+        }
+        finally
+        {
+            _busySync = false;
+        }
     }
 
     private bool MatchStatus(LocalDocument d)
@@ -181,6 +283,31 @@ else
     private bool MatchAtcud(LocalDocument d)
         => string.IsNullOrWhiteSpace(_atcudFilter)
            || (d.ATCUD?.Contains(_atcudFilter.Trim(), StringComparison.OrdinalIgnoreCase) ?? false);
+
+
+    /// <summary>
+    /// Badge visual por estado para leitura rápida no histórico.
+    /// </summary>
+    private static string GetStatusBadgeStyle(SyncStatus status) => status switch
+    {
+        SyncStatus.Synced => "padding:2px 8px; border-radius:10px; background:#e6f7ed; color:#116d3c; font-weight:600;",
+        SyncStatus.PendingSync => "padding:2px 8px; border-radius:10px; background:#fff6e5; color:#8a5a00; font-weight:600;",
+        SyncStatus.Error => "padding:2px 8px; border-radius:10px; background:#fdecec; color:#a33; font-weight:600;",
+        SyncStatus.Draft => "padding:2px 8px; border-radius:10px; background:#eef2ff; color:#334155; font-weight:600;",
+        _ => "padding:2px 8px; border-radius:10px; background:#f3f4f6; color:#374151; font-weight:600;"
+    };
+
+    /// <summary>
+    /// Mostra resumo curto do erro e preserva detalhe completo no tooltip.
+    /// </summary>
+    private static string ShortError(string? err, int max = 90)
+    {
+        if (string.IsNullOrWhiteSpace(err))
+            return "-";
+
+        var text = err.Trim();
+        return text.Length <= max ? text : text.Substring(0, max) + "…";
+    }
 
     private void ClearFilters()
     {
