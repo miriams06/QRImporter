@@ -71,71 +71,71 @@ else
     {
         <table class="table" style="width:100%;">
             <thead>
-            <tr>
-                <th>Data doc.</th>
-                <th>Tipo</th>
-                <th>Emitente</th>
-                <th>ATCUD</th>
-                <th>Série/Nº</th>
-                <th>Estado</th>
-                <th>Detalhe Sync</th>
-                <th></th>
-            </tr>
+                <tr>
+                    <th>Data doc.</th>
+                    <th>Tipo</th>
+                    <th>Emitente</th>
+                    <th>ATCUD</th>
+                    <th>Série/Nº</th>
+                    <th>Estado</th>
+                    <th>Detalhe Sync</th>
+                    <th></th>
+                </tr>
             </thead>
             <tbody>
-            @foreach (var d in FilteredDocs)
-            {
-                _outboxByDoc.TryGetValue(d.Id, out var outbox);
+                @foreach (var d in FilteredDocs)
+                {
+                    _outboxByDoc.TryGetValue(d.Id, out var outbox);
 
-                <tr>
-                    <td>@(d.DocumentDate == default ? "-" : d.DocumentDate.ToLocalTime().ToString("yyyy-MM-dd"))</td>
-                    <td>@(string.IsNullOrWhiteSpace(d.DocumentType) ? "-" : d.DocumentType)</td>
+                    <tr>
+                        <td>@(d.DocumentDate == default ? "-" : d.DocumentDate.ToLocalTime().ToString("yyyy-MM-dd"))</td>
+                        <td>@(string.IsNullOrWhiteSpace(d.DocumentType) ? "-" : d.DocumentType)</td>
 
-                    <td>
-                        @if (!string.IsNullOrWhiteSpace(d.IssuerName))
-                        {
-                            <div>@d.IssuerName</div>
-                            <div style="opacity:.7; font-size:12px;">NIF: @d.IssuerTaxId</div>
-                        }
-                        else
-                        {
-                            <span>@(string.IsNullOrWhiteSpace(d.IssuerTaxId) ? "-" : d.IssuerTaxId)</span>
-                        }
-                    </td>
-
-                    <td style="font-family: monospace;">@(string.IsNullOrWhiteSpace(d.ATCUD) ? "-" : d.ATCUD)</td>
-                    <td>@(string.IsNullOrWhiteSpace(d.Series) && string.IsNullOrWhiteSpace(d.DocumentNumber) ? "-" : $"{d.Series}/{d.DocumentNumber}")</td>
-                    <td><span style="@GetStatusBadgeStyle(d.SyncStatus)">@d.SyncStatus</span></td>
-
-                    <td style="max-width:260px; font-size:12px;">
-                        @if (outbox is null)
-                        {
-                            <span style="opacity:.7;">Sem item na outbox</span>
-                        }
-                        else
-                        {
-                            <div>Tentativas: <b>@outbox.AttemptCount</b></div>
-                            <div>Próxima: @outbox.NextAttemptAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</div>
-                            @if (!string.IsNullOrWhiteSpace(outbox.LastError))
+                        <td>
+                            @if (!string.IsNullOrWhiteSpace(d.IssuerName))
                             {
-                                <div style="color:#a33;" title="@outbox.LastError">Erro: @ShortError(outbox.LastError)</div>
+                                <div>@d.IssuerName</div>
+                                <div style="opacity:.7; font-size:12px;">NIF: @d.IssuerTaxId</div>
                             }
-                            @if (outbox.IsPermanentError)
+                            else
                             {
-                                <div style="color:#a33;">Erro permanente</div>
+                                <span>@(string.IsNullOrWhiteSpace(d.IssuerTaxId) ? "-" : d.IssuerTaxId)</span>
                             }
-                        }
-                    </td>
+                        </td>
 
-                    <td style="text-align:right; white-space:nowrap;">
-                        @if (outbox is not null)
-                        {
-                            <button type="button" @onclick="() => RetryDocAsync(d.Id)" disabled="@_busySync">Repetir sync</button>
-                        }
-                        <button @onclick="() => Open(d.Id)">Ver</button>
-                    </td>
-                </tr>
-            }
+                        <td style="font-family: monospace;">@(string.IsNullOrWhiteSpace(d.ATCUD) ? "-" : d.ATCUD)</td>
+                        <td>@(string.IsNullOrWhiteSpace(d.Series) && string.IsNullOrWhiteSpace(d.DocumentNumber) ? "-" : $"{d.Series}/{d.DocumentNumber}")</td>
+                        <td><span style="@GetStatusBadgeStyle(d.SyncStatus)">@d.SyncStatus</span></td>
+
+                        <td style="max-width:260px; font-size:12px;">
+                            @if (outbox is null)
+                            {
+                                <span style="opacity:.7;">Sem item na outbox</span>
+                            }
+                            else
+                            {
+                                <div>Tentativas: <b>@outbox.AttemptCount</b></div>
+                                <div>Próxima: @outbox.NextAttemptAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</div>
+                                @if (!string.IsNullOrWhiteSpace(outbox.LastError))
+                                {
+                                    <div style="color:#a33;" title="@outbox.LastError">Erro: @ShortError(outbox.LastError)</div>
+                                }
+                                @if (outbox.IsPermanentError)
+                                {
+                                    <div style="color:#a33;">Erro permanente</div>
+                                }
+                            }
+                        </td>
+
+                        <td style="text-align:right; white-space:nowrap;">
+                            @if (outbox is not null)
+                            {
+                                <button type="button" @onclick="() => RetryDocAsync(d.Id)" disabled="@_busySync">Repetir sync</button>
+                            }
+                            <button @onclick="() => Open(d.Id)">Ver</button>
+                        </td>
+                    </tr>
+                }
             </tbody>
         </table>
     }
@@ -147,23 +147,6 @@ else
 
     private readonly List<LocalDocument> _docs = new();
     private readonly Dictionary<Guid, OutboxItem> _outboxByDoc = new();
-
-    private readonly string[] _statusValues = Enum.GetNames<SyncStatus>();
-
-    private string _statusFilter = string.Empty;
-    private string _nifFilter = string.Empty;
-    private string _seriesNumberFilter = string.Empty;
-    private string _atcudFilter = string.Empty;
-    private DateTime? _fromDate;
-    private DateTime? _toDate;
-
-    private List<LocalDocument> FilteredDocs => _docs
-        .Where(MatchStatus)
-        .Where(MatchDateRange)
-        .Where(MatchNif)
-        .Where(MatchSeriesNumber)
-        .Where(MatchAtcud)
-        .ToList();
 
     private readonly string[] _statusValues = Enum.GetNames<SyncStatus>();
 
@@ -283,7 +266,6 @@ else
     private bool MatchAtcud(LocalDocument d)
         => string.IsNullOrWhiteSpace(_atcudFilter)
            || (d.ATCUD?.Contains(_atcudFilter.Trim(), StringComparison.OrdinalIgnoreCase) ?? false);
-
 
     /// <summary>
     /// Badge visual por estado para leitura rápida no histórico.
