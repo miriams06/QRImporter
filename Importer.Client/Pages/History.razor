@@ -165,6 +165,23 @@ else
         .Where(MatchAtcud)
         .ToList();
 
+    private readonly string[] _statusValues = Enum.GetNames<SyncStatus>();
+
+    private string _statusFilter = string.Empty;
+    private string _nifFilter = string.Empty;
+    private string _seriesNumberFilter = string.Empty;
+    private string _atcudFilter = string.Empty;
+    private DateTime? _fromDate;
+    private DateTime? _toDate;
+
+    private List<LocalDocument> FilteredDocs => _docs
+        .Where(MatchStatus)
+        .Where(MatchDateRange)
+        .Where(MatchNif)
+        .Where(MatchSeriesNumber)
+        .Where(MatchAtcud)
+        .ToList();
+
     private void Open(Guid id) => Nav.NavigateTo($"/validate/{id}");
 
     protected override async Task OnInitializedAsync()
