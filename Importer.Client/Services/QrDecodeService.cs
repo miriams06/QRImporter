@@ -63,20 +63,6 @@ namespace Importer.Client.Services
                     result.Status = "NOT_FOUND";
                 }
 
-            try
-            {
-                if (contentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
-                {
-                    return await DecodeImageAsync(fileBytes, contentType, sw, cancellationToken);
-                }
-
-                if (contentType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase))
-                {
-                    return await DecodePdfAsync(fileBytes, sw, cancellationToken);
-                }
-
-                result.Status = "UNREADABLE";
-                result.Strategy = "unsupported-content-type";
                 result.DurationMs = sw.ElapsedMilliseconds;
                 return result;
             }
@@ -91,7 +77,6 @@ namespace Importer.Client.Services
             {
                 result.Status = "UNREADABLE";
                 result.Strategy = "crop-exception";
-                result.Strategy = "exception";
                 result.DurationMs = sw.ElapsedMilliseconds;
                 return result;
             }
