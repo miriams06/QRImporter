@@ -67,12 +67,7 @@ builder.Services.AddDbContext<AppDbContext>((sp, opt) =>
         raw = builder.Configuration.GetConnectionString("DefaultConnection") ?? string.Empty;
     }
 
-    if (string.IsNullOrWhiteSpace(raw) || LooksLikePlaceholder(raw))
-    {
-        throw new InvalidOperationException(
-            "DatabaseConnectionString não está configurada. Defina ApiConfig__DatabaseConnectionString " +
-            "ou ConnectionStrings__DefaultConnection com uma connection string PostgreSQL válida.");
-    }
+     
 
     try
     {
