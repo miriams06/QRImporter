@@ -97,6 +97,42 @@ public sealed class IndexedDbService
         }).ToList();
     }
 
+
+    /// <summary>
+    /// Lista todos os itens da outbox (incluindo não-due e permanentes),
+    /// para diagnóstico/visualização no histórico.
+    /// </summary>
+    public async Task<IReadOnlyList<OutboxItem>> GetAllOutboxAsync()
+    {
+        var items = await _js.InvokeAsync<OutboxJs[]>("importerIndexedDb.getAll", "outbox");
+        return items.Select(x => new OutboxItem
+        {
+            DocumentId = Guid.Parse(x.documentId),
+            AttemptCount = x.attemptCount,
+            NextAttemptAt = DateTimeOffset.Parse(x.nextAttemptAt),
+            LastError = x.lastError,
+            IsPermanentError = x.isPermanentError
+        }).ToList();
+    }
+
+    /// <summary>
+    /// Força novo retry para um documento da outbox:
+    /// - remove marcação de erro permanente,
+    /// - agenda tentativa imediata.
+    /// </summary>
+    public async Task ForceRetryOutboxAsync(Guid documentId)
+    {
+        var dto = await _js.InvokeAsync<OutboxJs?>("importerIndexedDb.get", "outbox", documentId.ToString("D"));
+        if (dto is null)
+            return;
+
+        dto.isPermanentError = false;
+        dto.nextAttemptAt = DateTimeOffset.UtcNow.ToString("O");
+        dto.lastError = null;
+
+        await _js.InvokeVoidAsync("importerIndexedDb.put", "outbox", dto);
+    }
+
     public async Task<IReadOnlyList<LocalDocument>> GetAllDocumentsAsync()
     {
         var all = await _js.InvokeAsync<DocumentJs[]>("importerIndexedDb.getAll", "documents");
