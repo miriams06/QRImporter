@@ -17,7 +17,6 @@
 
     <div>
         <label>Série</label>
-        <InputText @bind-Value="Model.Series" disabled="@(Disabled)" />
         <input @bind="Model.Series" @bind:event="oninput" @bind:after='async () => await NotifyEditedAsync(nameof(LocalDocument.Series))' disabled="@(Disabled)" />
     </div>
 
