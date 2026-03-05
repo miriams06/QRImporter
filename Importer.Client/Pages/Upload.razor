@@ -18,6 +18,10 @@
     <button type="button" @onclick="GoCamera">
         Ler QR com câmara
     </button>
+
+    <button type="button" @onclick="GoHistory">
+        Ir para histórico
+    </button>
 </div>
 
 @if (_showFilePicker)
@@ -41,6 +45,8 @@
         // Vai direto para validação em modo câmara (sem ficheiro carregado)
         Nav.NavigateTo("/scan");
     }
+
+    private void GoHistory() => Nav.NavigateTo("/history");
 
     private async Task HandleFile(IBrowserFile file)
     {
