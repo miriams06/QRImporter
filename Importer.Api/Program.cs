@@ -8,8 +8,18 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Minio;
+using Npgsql;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Host.UseSerilog((context, services, loggerConfig) =>
+{
+    loggerConfig
+        .ReadFrom.Configuration(context.Configuration)
+        .ReadFrom.Services(services)
+        .Enrich.FromLogContext();
+});
 
 // ── Controllers + Swagger (existente) ──────────────────────────────────────
 builder.Services.AddControllers();
@@ -48,8 +58,49 @@ builder.Services.AddScoped<IStorageService, S3StorageService>();
 builder.Services.AddDbContext<AppDbContext>((sp, opt) =>
 {
     var cfg = sp.GetRequiredService<ApiConfig>();
-    opt.UseNpgsql(cfg.DatabaseConnectionString);
+
+    if (!TryResolveDatabaseConnectionString(cfg, builder.Configuration, out var raw))
+    {
+        throw new InvalidOperationException(
+            "DatabaseConnectionString não está configurada. Defina ApiConfig__DatabaseConnectionString " +
+            "ou ConnectionStrings__DefaultConnection com uma connection string PostgreSQL válida.");
+    }
+
+    try
+    {
+        var parsed = new NpgsqlConnectionStringBuilder(raw);
+        opt.UseNpgsql(parsed.ConnectionString);
+    }
+    catch (ArgumentException ex)
+    {
+        throw new InvalidOperationException(
+            "DatabaseConnectionString inválida. Formato esperado: " +
+            "Host=<db-host>;Port=<db-port>;Database=<db-name>;Username=<db-user>;Password=<db-password>", ex);
+    }
 });
+
+
+static bool LooksLikePlaceholder(string? value)
+{
+    if (string.IsNullOrWhiteSpace(value)) return false;
+    var trimmed = value.Trim();
+    return trimmed.StartsWith("#{") && trimmed.EndsWith("}#");
+}
+
+static bool TryResolveDatabaseConnectionString(ApiConfig cfg, IConfiguration configuration, out string connectionString)
+{
+    var raw = cfg.DatabaseConnectionString;
+
+    if (LooksLikePlaceholder(raw))
+    {
+        // Fallback útil para ambientes onde a equipa define ConnectionStrings:DefaultConnection
+        // (ex.: User Secrets local, variável de ambiente CI, etc.)
+        raw = configuration.GetConnectionString("DefaultConnection") ?? string.Empty;
+    }
+
+    connectionString = raw;
+    return !string.IsNullOrWhiteSpace(raw) && !LooksLikePlaceholder(raw);
+}
 
 // ── JWT Authentication (NOVO) ───────────────────────────────────────────────
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -97,12 +148,25 @@ builder.Services.AddCors(o =>
 // ════════════════════════════════════════════════════════════════════════════
 var app = builder.Build();
 
+app.UseSerilogRequestLogging();
+
 // ── Migrations automáticas em Development (NOVO) ───────────────────────────
 if (app.Environment.IsDevelopment())
 {
     using var scope = app.Services.CreateScope();
-    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    await db.Database.MigrateAsync();
+    var cfg = scope.ServiceProvider.GetRequiredService<ApiConfig>();
+
+    if (TryResolveDatabaseConnectionString(cfg, app.Configuration, out _))
+    {
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await db.Database.MigrateAsync();
+    }
+    else
+    {
+        app.Logger.LogWarning(
+            "A saltar migrações automáticas porque DatabaseConnectionString não está definida. " +
+            "Configure ApiConfig__DatabaseConnectionString ou ConnectionStrings__DefaultConnection.");
+    }
 }
 
 // ── Pipeline HTTP ───────────────────────────────────────────────────────────
