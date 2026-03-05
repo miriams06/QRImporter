@@ -31,6 +31,7 @@
     <div class="actions">
         <button @onclick="SaveDraftAsync" disabled="@_saving">Guardar rascunho</button>
         <button disabled="@_saving">Validar</button>
+        <button type="button" @onclick="GoHistory" disabled="@_saving || _readingQr">Histórico</button>
 
         @if (!_readingQr)
         {
@@ -121,6 +122,8 @@
         _message = "Leitura cancelada.";
         await InvokeAsync(StateHasChanged);
     }
+
+    private void GoHistory() => Nav.NavigateTo("/history");
 
     private LocalDocument _doc = new()
     {
