@@ -57,6 +57,12 @@
                     for (const reg of regs) {
                         await reg.unregister();
                     }
+
+                    if (window.caches) {
+                        const keys = await caches.keys();
+                        await Promise.all(keys.map(k => caches.delete(k)));
+                    }
+
                     return;
                 }
 
@@ -64,7 +70,7 @@
             });
         }
     </script>
-    <script src="_framework/blazor.webassembly.js"></script>
+    <script src="_framework/blazor.webassembly.js?v=20260305-1"></script>
 </body>
 
 </html>
