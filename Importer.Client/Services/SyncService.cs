@@ -1,4 +1,4 @@
-Ôªøusing Importer.Client.Models;
+using Importer.Client.Models;
 
 namespace Importer.Client.Services;
 
@@ -64,16 +64,16 @@ public sealed class SyncService
     private async Task SyncOneAsync(Guid documentId)
     {
         var doc = await _db.GetDocumentAsync(documentId)
-                  ?? throw new InvalidOperationException("Documento local n√£o encontrado.");
+                  ?? throw new InvalidOperationException("Documento local n„o encontrado.");
 
         if (string.IsNullOrWhiteSpace(doc.FileKey))
-            throw new InvalidOperationException("Documento sem FileKey (ficheiro n√£o associado).");
+            throw new InvalidOperationException("Documento sem FileKey (ficheiro n„o associado).");
 
         // MVP: metadata = JSON do LocalDocument (sem o JsonDocument em bruto)
         var metadataJson = SerializeMetadata(doc);
 
         var file = await _db.GetFileAsync(doc.FileKey)
-           ?? throw new InvalidOperationException("Ficheiro local n√£o encontrado.");
+           ?? throw new InvalidOperationException("Ficheiro local n„o encontrado.");
 
         var (fileName, contentType, bytes) = file;
 
@@ -83,7 +83,7 @@ public sealed class SyncService
 
     private static string SerializeMetadata(LocalDocument doc)
     {
-        // N√£o enviar JsonDocument diretamente; envia string raw
+        // N„o enviar JsonDocument diretamente; envia string raw
         var qrParsedJson = doc.QrParsedData?.RootElement.GetRawText();
 
         var payload = new
@@ -97,6 +97,7 @@ public sealed class SyncService
             doc.DocumentDate,
             doc.IssuerTaxId,
             doc.IssuerName,
+            doc.IssuerAddress,
             doc.ATCUD,
             doc.QrRawPayload,
             QrParsedJson = qrParsedJson,

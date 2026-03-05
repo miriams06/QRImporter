@@ -1,4 +1,4 @@
-ï»¿using System.Text.Json;
+using System.Text.Json;
 using Importer.Client.Models;
 using Microsoft.JSInterop;
 
@@ -17,7 +17,7 @@ public sealed class IndexedDbService
     /// </summary>
     public async Task SaveDocumentAsync(LocalDocument document, string fileName, string contentType, byte[] fileBytes)
     {
-        // Garantir FileKey (vamos usar "doc:{id}" por consistÃªncia)
+        // Garantir FileKey (vamos usar "doc:{id}" por consistência)
         if (string.IsNullOrWhiteSpace(document.FileKey))
             document.FileKey = $"doc:{document.Id:D}";
 
@@ -25,7 +25,7 @@ public sealed class IndexedDbService
         if (document.SyncStatus == SyncStatus.Draft)
             document.SyncStatus = SyncStatus.PendingSync;
 
-        // SerializaÃ§Ã£o segura do QrParsedData
+        // Serialização segura do QrParsedData
         var qrParsedJson = document.QrParsedData?.RootElement.GetRawText();
 
         // 1) Guardar documento
@@ -40,6 +40,7 @@ public sealed class IndexedDbService
             documentDate = document.DocumentDate.ToString("O"),
             issuerTaxId = document.IssuerTaxId,
             issuerName = document.IssuerName,
+            issuerAddress = document.IssuerAddress,
             atcud = document.ATCUD,
             qrRawPayload = document.QrRawPayload,
             qrParsedJson = qrParsedJson,
@@ -67,12 +68,12 @@ public sealed class IndexedDbService
     }
 
     /// <summary>
-    /// LÃª documentos pendentes de sincronizaÃ§Ã£o (por SyncStatus).
-    /// (Ãštil para UI / histÃ³rico)
+    /// Lê documentos pendentes de sincronização (por SyncStatus).
+    /// (Útil para UI / histórico)
     /// </summary>
     public async Task<IEnumerable<LocalDocument>> GetPendingDocumentsAsync()
     {
-        // MVP: ler todos e filtrar (mais tarde cria Ã­ndice/s.
+        // MVP: ler todos e filtrar (mais tarde cria índice/s.
         var all = await _js.InvokeAsync<DocumentJs[]>("importerIndexedDb.getAll", "documents");
         return all
             .Select(Map)
@@ -81,7 +82,7 @@ public sealed class IndexedDbService
     }
 
     /// <summary>
-    /// Lista itens da outbox cujo nextAttemptAt jÃ¡ expirou.
+    /// Lista itens da outbox cujo nextAttemptAt já expirou.
     /// (Para o SyncService)
     /// </summary>
     public async Task<IReadOnlyList<OutboxItem>> GetOutboxDueAsync(DateTimeOffset now)
@@ -99,8 +100,8 @@ public sealed class IndexedDbService
 
 
     /// <summary>
-    /// Lista todos os itens da outbox (incluindo nÃ£o-due e permanentes),
-    /// para diagnÃ³stico/visualizaÃ§Ã£o no histÃ³rico.
+    /// Lista todos os itens da outbox (incluindo não-due e permanentes),
+    /// para diagnóstico/visualização no histórico.
     /// </summary>
     public async Task<IReadOnlyList<OutboxItem>> GetAllOutboxAsync()
     {
@@ -116,8 +117,8 @@ public sealed class IndexedDbService
     }
 
     /// <summary>
-    /// ForÃ§a novo retry para um documento da outbox:
-    /// - remove marcaÃ§Ã£o de erro permanente,
+    /// Força novo retry para um documento da outbox:
+    /// - remove marcação de erro permanente,
     /// - agenda tentativa imediata.
     /// </summary>
     public async Task ForceRetryOutboxAsync(Guid documentId)
@@ -217,6 +218,7 @@ public sealed class IndexedDbService
             documentDate = document.DocumentDate.ToString("O"),
             issuerTaxId = document.IssuerTaxId,
             issuerName = document.IssuerName,
+            issuerAddress = document.IssuerAddress,
             atcud = document.ATCUD,
             qrRawPayload = document.QrRawPayload,
             qrParsedJson = qrParsedJson,
@@ -239,6 +241,7 @@ public sealed class IndexedDbService
             DocumentDate = DateTime.Parse(dto.documentDate ?? DateTime.UtcNow.ToString("O"), null, System.Globalization.DateTimeStyles.RoundtripKind),
             IssuerTaxId = dto.issuerTaxId ?? "",
             IssuerName = dto.issuerName ?? "",
+            IssuerAddress = dto.issuerAddress ?? "",
             ATCUD = dto.atcud ?? "",
             QrRawPayload = dto.qrRawPayload ?? "",
             QrParsedData = string.IsNullOrWhiteSpace(dto.qrParsedJson) ? null : JsonDocument.Parse(dto.qrParsedJson),
@@ -269,6 +272,7 @@ public sealed class IndexedDbService
         public string? documentDate { get; set; }
         public string? issuerTaxId { get; set; }
         public string? issuerName { get; set; }
+        public string? issuerAddress { get; set; }
         public string? atcud { get; set; }
         public string? qrRawPayload { get; set; }
         public string? qrParsedJson { get; set; }

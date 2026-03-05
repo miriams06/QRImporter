@@ -1,5 +1,6 @@
-﻿using System.Net.Http.Headers;
-using Importer.Core.Config;
+﻿using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
 
 namespace Importer.Client.Services
 {
@@ -27,5 +28,23 @@ namespace Importer.Client.Services
             var resp = await _http.PostAsync("documents", form);
             resp.EnsureSuccessStatusCode();
         }
+
+        public async Task<CompanyLookupDto?> LookupCompanyByNifAsync(string nif, CancellationToken ct = default)
+        {
+            var resp = await _http.GetAsync($"companies/lookup/{Uri.EscapeDataString(nif)}", ct);
+            if (resp.StatusCode == HttpStatusCode.NotFound)
+                return null;
+
+            resp.EnsureSuccessStatusCode();
+            return await resp.Content.ReadFromJsonAsync<CompanyLookupDto>(cancellationToken: ct);
+        }
+    }
+
+    public sealed class CompanyLookupDto
+    {
+        public string Nif { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string Address { get; set; } = string.Empty;
+        public string Source { get; set; } = string.Empty;
     }
 }

@@ -1,4 +1,5 @@
-﻿using System.Text.Json;
+using System.Text.Json;
+using Importer.Api.Audit;
 using Importer.Api.Data;
 using Importer.Api.Entities;
 using Importer.Api.Storage;
@@ -13,15 +14,18 @@ public class DocumentsController : ControllerBase
 {
     private readonly IStorageService _storage;
     private readonly AppDbContext _db;
+    private readonly AuditService _audit;
     private readonly ILogger<DocumentsController> _logger;
 
     public DocumentsController(
         IStorageService storage,
         AppDbContext db,
+        AuditService audit,
         ILogger<DocumentsController> logger)
     {
         _storage = storage;
         _db = db;
+        _audit = audit;
         _logger = logger;
     }
 
@@ -29,6 +33,8 @@ public class DocumentsController : ControllerBase
     [RequestSizeLimit(100_000_000)]
     public async Task<IActionResult> Upload([FromForm] DocumentUploadForm form, CancellationToken ct)
     {
+        var actor = User?.Identity?.Name ?? "anonymous";
+
         if (string.IsNullOrWhiteSpace(form.Metadata))
             return BadRequest("metadata é obrigatório.");
 
@@ -81,7 +87,24 @@ public class DocumentsController : ControllerBase
             }
 
             MapMetadata(entity, parsed, form, safeFileName, objectKey, metaKey);
+            await UpsertCompanyFromDocumentAsync(entity, ct);
             await _db.SaveChangesAsync(ct);
+
+            await _audit.TryLogAsync(
+                eventType: "DocumentUpload",
+                outcome: "Success",
+                documentId: documentId,
+                actor: actor,
+                source: "Documents.Upload",
+                details: new
+                {
+                    fileName = safeFileName,
+                    fileSize = form.File.Length,
+                    contentType = form.File.ContentType,
+                    objectKey,
+                    metaKey
+                },
+                ct: ct);
 
             _logger.LogInformation(
                 "Upload OK: documentId={DocumentId} objectKey={ObjectKey} metaKey={MetaKey}",
@@ -102,6 +125,15 @@ public class DocumentsController : ControllerBase
         }
         catch (OperationCanceledException)
         {
+            await _audit.TryLogAsync(
+                eventType: "DocumentUpload",
+                outcome: "Cancelled",
+                documentId: documentId,
+                actor: actor,
+                source: "Documents.Upload",
+                details: new { objectKey, reason = "Request cancelled" },
+                ct: ct);
+
             _logger.LogWarning(
                 "Upload cancelado: documentId={DocumentId} objectKey={ObjectKey}",
                 documentId,
@@ -114,6 +146,15 @@ public class DocumentsController : ControllerBase
         }
         catch (Exception ex)
         {
+            await _audit.TryLogAsync(
+                eventType: "DocumentUpload",
+                outcome: "Failure",
+                documentId: documentId,
+                actor: actor,
+                source: "Documents.Upload",
+                details: new { objectKey, metaKey, error = ex.Message },
+                ct: ct);
+
             _logger.LogError(
                 ex,
                 "Upload falhou: documentId={DocumentId} objectKey={ObjectKey} metaKey={MetaKey}",
@@ -192,6 +233,7 @@ public class DocumentsController : ControllerBase
                 DocumentDate = d.DocumentDate,
                 IssuerTaxId = d.IssuerTaxId,
                 IssuerName = d.IssuerName,
+                IssuerAddress = d.IssuerAddress,
                 Atcud = d.Atcud,
                 SyncStatus = d.SyncStatus,
                 FileName = d.OriginalFileName,
@@ -200,6 +242,26 @@ public class DocumentsController : ControllerBase
                 StorageObjectKey = d.StorageObjectKey
             })
             .ToListAsync(ct);
+
+        await _audit.TryLogAsync(
+            eventType: "DocumentsList",
+            outcome: "Success",
+            documentId: null,
+            actor: User?.Identity?.Name ?? "anonymous",
+            source: "Documents.List",
+            details: new
+            {
+                query.Status,
+                query.Nif,
+                query.Atcud,
+                query.SeriesNumber,
+                query.FromDate,
+                query.ToDate,
+                page,
+                pageSize,
+                total
+            },
+            ct: ct);
 
         return Ok(new DocumentsPageResponse
         {
@@ -210,6 +272,44 @@ public class DocumentsController : ControllerBase
         });
     }
 
+    private async Task UpsertCompanyFromDocumentAsync(DocumentEntity document, CancellationToken ct)
+    {
+        var nif = NormalizeNif(document.IssuerTaxId);
+        if (string.IsNullOrWhiteSpace(nif))
+            return;
+
+        var name = (document.IssuerName ?? string.Empty).Trim();
+        var address = (document.IssuerAddress ?? string.Empty).Trim();
+
+        if (string.IsNullOrWhiteSpace(name) && string.IsNullOrWhiteSpace(address))
+            return;
+
+        var company = await _db.Companies.FirstOrDefaultAsync(c => c.TaxId == nif, ct);
+
+        if (company is null)
+        {
+            _db.Companies.Add(new CompanyEntity
+            {
+                TaxId = nif,
+                Name = name,
+                Address = address,
+                Source = "documents-sync",
+                CreatedAtUtc = DateTime.UtcNow,
+                UpdatedAtUtc = DateTime.UtcNow
+            });
+
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(name))
+            company.Name = name;
+
+        if (!string.IsNullOrWhiteSpace(address))
+            company.Address = address;
+
+        company.Source = "documents-sync";
+        company.UpdatedAtUtc = DateTime.UtcNow;
+    }
     private static void MapMetadata(
         DocumentEntity entity,
         ParsedMetadata metadata,
@@ -225,8 +325,9 @@ public class DocumentsController : ControllerBase
         entity.Series = metadata.Series;
         entity.DocumentNumber = metadata.DocumentNumber;
         entity.DocumentDate = NormalizeToUtc(metadata.DocumentDate);
-        entity.IssuerTaxId = metadata.IssuerTaxId;
+        entity.IssuerTaxId = NormalizeNif(metadata.IssuerTaxId);
         entity.IssuerName = metadata.IssuerName;
+        entity.IssuerAddress = metadata.IssuerAddress;
         entity.Atcud = metadata.Atcud;
         entity.QrRawPayload = metadata.QrRawPayload;
         entity.QrParsedJson = metadata.QrParsedJson;
@@ -263,8 +364,9 @@ public class DocumentsController : ControllerBase
                 Series = GetString(root, "Series") ?? string.Empty,
                 DocumentNumber = GetString(root, "DocumentNumber") ?? string.Empty,
                 DocumentDate = NormalizeToUtc(GetDateTime(root, "DocumentDate")),
-                IssuerTaxId = GetString(root, "IssuerTaxId") ?? string.Empty,
+                IssuerTaxId = NormalizeNif(GetString(root, "IssuerTaxId") ?? string.Empty),
                 IssuerName = GetString(root, "IssuerName") ?? string.Empty,
+                IssuerAddress = GetString(root, "IssuerAddress") ?? string.Empty,
                 Atcud = GetString(root, "ATCUD") ?? string.Empty,
                 QrRawPayload = GetString(root, "QrRawPayload") ?? string.Empty,
                 QrParsedJson = GetRawJson(root, "QrParsedJson") ?? string.Empty,
@@ -294,6 +396,15 @@ public class DocumentsController : ControllerBase
 
     private static DateTime? NormalizeToUtc(DateTime? value)
         => value is null ? null : NormalizeToUtc(value.Value);
+
+    private static string NormalizeNif(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        return new string(value.Where(char.IsDigit).ToArray());
+    }
+
     private static bool TryGetProperty(JsonElement root, string propertyName, out JsonElement value)
     {
         if (root.TryGetProperty(propertyName, out value))
@@ -365,6 +476,7 @@ public class DocumentsController : ControllerBase
         public DateTime? DocumentDate { get; set; }
         public string IssuerTaxId { get; set; } = string.Empty;
         public string IssuerName { get; set; } = string.Empty;
+        public string IssuerAddress { get; set; } = string.Empty;
         public string Atcud { get; set; } = string.Empty;
         public string QrRawPayload { get; set; } = string.Empty;
         public string QrParsedJson { get; set; } = string.Empty;
@@ -404,6 +516,7 @@ public class DocumentsController : ControllerBase
         public DateTime? DocumentDate { get; set; }
         public string IssuerTaxId { get; set; } = string.Empty;
         public string IssuerName { get; set; } = string.Empty;
+        public string IssuerAddress { get; set; } = string.Empty;
         public string Atcud { get; set; } = string.Empty;
         public string SyncStatus { get; set; } = string.Empty;
         public string FileName { get; set; } = string.Empty;
@@ -420,5 +533,3 @@ public class DocumentsController : ControllerBase
         public List<DocumentListItemResponse> Items { get; set; } = new();
     }
 }
-
-

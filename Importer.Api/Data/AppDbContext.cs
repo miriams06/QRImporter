@@ -11,6 +11,8 @@ public class AppDbContext : DbContext
     public DbSet<AppUser> Users => Set<AppUser>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<DocumentEntity> Documents => Set<DocumentEntity>();
+    public DbSet<CompanyEntity> Companies => Set<CompanyEntity>();
+    public DbSet<AuditLogEntity> AuditLogs => Set<AuditLogEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -46,6 +48,7 @@ public class AppDbContext : DbContext
             e.Property(d => d.DocumentNumber).HasMaxLength(60);
             e.Property(d => d.IssuerTaxId).HasMaxLength(30);
             e.Property(d => d.IssuerName).HasMaxLength(200);
+            e.Property(d => d.IssuerAddress).HasMaxLength(300);
             e.Property(d => d.Atcud).HasMaxLength(120);
             e.Property(d => d.SyncStatus).HasMaxLength(30);
             e.Property(d => d.StorageObjectKey).HasMaxLength(500);
@@ -59,5 +62,35 @@ public class AppDbContext : DbContext
             e.HasIndex(d => d.Atcud);
             e.HasIndex(d => d.SyncStatus);
         });
+
+        modelBuilder.Entity<CompanyEntity>(e =>
+        {
+            e.ToTable("Companies");
+            e.HasKey(c => c.Id);
+
+            e.Property(c => c.TaxId).HasMaxLength(30);
+            e.Property(c => c.Name).HasMaxLength(200);
+            e.Property(c => c.Address).HasMaxLength(300);
+            e.Property(c => c.Source).HasMaxLength(120);
+
+            e.HasIndex(c => c.TaxId).IsUnique();
+            e.HasIndex(c => c.UpdatedAtUtc);
+        });
+
+        modelBuilder.Entity<AuditLogEntity>(e =>
+        {
+            e.ToTable("AuditLogs");
+            e.HasKey(a => a.Id);
+
+            e.Property(a => a.EventType).HasMaxLength(80);
+            e.Property(a => a.Outcome).HasMaxLength(20);
+            e.Property(a => a.Actor).HasMaxLength(120);
+            e.Property(a => a.Source).HasMaxLength(120);
+
+            e.HasIndex(a => a.DocumentId);
+            e.HasIndex(a => a.CreatedAtUtc);
+            e.HasIndex(a => a.EventType);
+        });
     }
 }
+

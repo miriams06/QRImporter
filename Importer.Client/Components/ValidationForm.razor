@@ -3,7 +3,7 @@
 
 @if (Model is null)
 {
-    <p><em>A carregar dadosâ€¦</em></p>
+    <p><em>A carregar dados…</em></p>
     return;
 }
 
@@ -16,18 +16,28 @@
     </div>
 
     <div>
-        <label>SÃ©rie</label>
+        <label>Série</label>
         <input @bind="Model.Series" @bind:event="oninput" @bind:after='async () => await NotifyEditedAsync(nameof(LocalDocument.Series))' disabled="@(Disabled)" />
     </div>
 
     <div>
-        <label>NÃºmero</label>
+        <label>Número</label>
         <input @bind="Model.DocumentNumber" @bind:event="oninput" @bind:after='async () => await NotifyEditedAsync(nameof(LocalDocument.DocumentNumber))' disabled="@(Disabled)" />
     </div>
 
     <div>
         <label>NIF Emissor</label>
         <input @bind="Model.IssuerTaxId" @bind:event="oninput" @bind:after='async () => await NotifyEditedAsync(nameof(LocalDocument.IssuerTaxId))' disabled="@(Disabled)" />
+    </div>
+
+    <div>
+        <label>Nome Emissor</label>
+        <input @bind="Model.IssuerName" @bind:event="oninput" @bind:after='async () => await NotifyEditedAsync(nameof(LocalDocument.IssuerName))' disabled="@(Disabled)" />
+    </div>
+
+    <div>
+        <label>Morada Emissor</label>
+        <input @bind="Model.IssuerAddress" @bind:event="oninput" @bind:after='async () => await NotifyEditedAsync(nameof(LocalDocument.IssuerAddress))' disabled="@(Disabled)" />
     </div>
 
     <div>

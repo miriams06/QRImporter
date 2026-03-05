@@ -1,4 +1,5 @@
-﻿using System.Text;
+using System.Text;
+using Importer.Api.Audit;
 using Importer.Api.Auth;
 using Importer.Api.Data;
 using Importer.Api.Storage;
@@ -125,6 +126,7 @@ builder.Services.AddAuthorization(opt =>
 
 builder.Services.AddScoped<JwtService>();
 builder.Services.AddScoped<AuthService>();
+builder.Services.AddScoped<AuditService>();
 
 builder.Services.AddCors(o =>
 {
@@ -152,7 +154,6 @@ if (TryResolveDatabaseConnectionString(
     else
         await db.Database.EnsureCreatedAsync();
 
-    // Fallback robusto para bases já existentes criadas sem a tabela Documents.
     await db.Database.ExecuteSqlRawAsync("""
         CREATE TABLE IF NOT EXISTS "Documents" (
             "Id" uuid NOT NULL,
@@ -165,6 +166,7 @@ if (TryResolveDatabaseConnectionString(
             "DocumentDate" timestamp with time zone NULL,
             "IssuerTaxId" character varying(30) NOT NULL,
             "IssuerName" character varying(200) NOT NULL,
+            "IssuerAddress" character varying(300) NOT NULL,
             "Atcud" character varying(120) NOT NULL,
             "QrRawPayload" text NOT NULL,
             "QrParsedJson" text NOT NULL,
@@ -180,11 +182,52 @@ if (TryResolveDatabaseConnectionString(
         """);
 
     await db.Database.ExecuteSqlRawAsync("""
+        ALTER TABLE "Documents" ADD COLUMN IF NOT EXISTS "IssuerAddress" character varying(300) NOT NULL DEFAULT '';
+        """);
+
+    await db.Database.ExecuteSqlRawAsync("""
         CREATE INDEX IF NOT EXISTS "IX_Documents_CreatedAtUtc" ON "Documents" ("CreatedAtUtc");
         CREATE INDEX IF NOT EXISTS "IX_Documents_DocumentDate" ON "Documents" ("DocumentDate");
         CREATE INDEX IF NOT EXISTS "IX_Documents_IssuerTaxId" ON "Documents" ("IssuerTaxId");
         CREATE INDEX IF NOT EXISTS "IX_Documents_Atcud" ON "Documents" ("Atcud");
         CREATE INDEX IF NOT EXISTS "IX_Documents_SyncStatus" ON "Documents" ("SyncStatus");
+        """);
+    await db.Database.ExecuteSqlRawAsync("""
+        CREATE TABLE IF NOT EXISTS "Companies" (
+            "Id" uuid NOT NULL,
+            "TaxId" character varying(30) NOT NULL,
+            "Name" character varying(200) NOT NULL,
+            "Address" character varying(300) NOT NULL,
+            "Source" character varying(120) NOT NULL,
+            "CreatedAtUtc" timestamp with time zone NOT NULL,
+            "UpdatedAtUtc" timestamp with time zone NOT NULL,
+            CONSTRAINT "PK_Companies" PRIMARY KEY ("Id")
+        );
+        """);
+
+    await db.Database.ExecuteSqlRawAsync("""
+        CREATE UNIQUE INDEX IF NOT EXISTS "IX_Companies_TaxId" ON "Companies" ("TaxId");
+        CREATE INDEX IF NOT EXISTS "IX_Companies_UpdatedAtUtc" ON "Companies" ("UpdatedAtUtc");
+        """);
+
+    await db.Database.ExecuteSqlRawAsync("""
+        CREATE TABLE IF NOT EXISTS "AuditLogs" (
+            "Id" uuid NOT NULL,
+            "CreatedAtUtc" timestamp with time zone NOT NULL,
+            "DocumentId" uuid NULL,
+            "EventType" character varying(80) NOT NULL,
+            "Outcome" character varying(20) NOT NULL,
+            "Actor" character varying(120) NOT NULL,
+            "Source" character varying(120) NOT NULL,
+            "DetailsJson" text NOT NULL,
+            CONSTRAINT "PK_AuditLogs" PRIMARY KEY ("Id")
+        );
+        """);
+
+    await db.Database.ExecuteSqlRawAsync("""
+        CREATE INDEX IF NOT EXISTS "IX_AuditLogs_DocumentId" ON "AuditLogs" ("DocumentId");
+        CREATE INDEX IF NOT EXISTS "IX_AuditLogs_CreatedAtUtc" ON "AuditLogs" ("CreatedAtUtc");
+        CREATE INDEX IF NOT EXISTS "IX_AuditLogs_EventType" ON "AuditLogs" ("EventType");
         """);
 }
 else

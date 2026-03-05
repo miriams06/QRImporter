@@ -8,6 +8,7 @@
 @inject DocumentStateService DocumentState
 @inject NavigationManager Nav
 @inject QrDecodeService QrDecoder
+@inject CompanyLookupService CompanyLookup
 
 <PageTitle>Validar Documento</PageTitle>
 
@@ -31,7 +32,7 @@
     <div class="actions">
         <button @onclick="SaveDraftAsync" disabled="@_saving">Guardar rascunho</button>
         <button disabled="@_saving">Validar</button>
-        <button type="button" @onclick="GoHistory" disabled="@_saving || _readingQr">Histórico</button>
+        <button type="button" @onclick="GoHistory" disabled="@_saving || _readingQr">Historico</button>
 
         @if (!_readingQr)
         {
@@ -52,7 +53,7 @@
     {
         <details style="margin-top:10px;">
             <summary><b>Fallback manual (Crop QR)</b></summary>
-            <p style="margin:8px 0;">Define a área em percentagem da imagem (0-100) e tenta reprocessar só esse recorte.</p>
+            <p style="margin:8px 0;">Define a area em percentagem da imagem (0-100) e tenta reprocessar so esse recorte.</p>
             <div style="display:grid; grid-template-columns:repeat(4, minmax(110px, 1fr)); gap:8px; max-width:620px;">
                 <label>X %<input type="number" min="0" max="100" step="1" @bind="_cropXPct" /></label>
                 <label>Y %<input type="number" min="0" max="100" step="1" @bind="_cropYPct" /></label>
@@ -104,6 +105,7 @@
     private CancellationTokenSource? _qrCts;
     private int _qrRunId = 0;
     private bool _loadedFromHistory;
+    private string? _lastCompanyLookupNif;
 
     private double _cropXPct = 55;
     private double _cropYPct = 55;
@@ -114,7 +116,7 @@
     {
         if (!_readingQr) return;
 
-        _qrRunId++;          // invalida esta run imediatamente
+        _qrRunId++;
         _qrCts?.Cancel();
         _qrCts = null;
 
@@ -142,7 +144,7 @@
             QrDecodedText = qr;
             _doc.QrRawPayload = qr;
 
-            RunQrParseAndApply(qr);
+            await RunQrParseAndApplyAsync(qr);
 
             DocumentState.ClearQrText();
             _loadedFromHistory = false;
@@ -196,7 +198,6 @@
         if (_loadedFromHistory)
             return;
 
-
         if (!(DocumentState.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)
            || DocumentState.ContentType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase)))
             return;
@@ -212,7 +213,6 @@
 
         await ReprocessQrAsync();
     }
-
 
     private readonly HashSet<string> _manuallyEditedFields = new(StringComparer.Ordinal);
 
@@ -286,7 +286,7 @@
         _formKey++;
     }
 
-    private void RunQrParseAndApply(string payload)
+    private async Task RunQrParseAndApplyAsync(string payload, CancellationToken ct = default)
     {
         var parsed = QrParser.Parse(payload);
         QrDocs = new List<QrData> { parsed };
@@ -298,6 +298,39 @@
         );
 
         ApplyQrToLocalDocument(parsed);
+        await TryEnrichIssuerAsync(force: false, ct);
+    }
+
+    private async Task<bool> TryEnrichIssuerAsync(bool force = false, CancellationToken ct = default)
+    {
+        var nif = new string((_doc.IssuerTaxId ?? string.Empty).Where(char.IsDigit).ToArray());
+        if (string.IsNullOrWhiteSpace(nif))
+            return false;
+
+        if (!force && string.Equals(_lastCompanyLookupNif, nif, StringComparison.Ordinal))
+            return false;
+
+        _lastCompanyLookupNif = nif;
+
+        var lookup = await CompanyLookup.LookupByNifAsync(nif, ct);
+        if (lookup is null)
+            return false;
+
+        var beforeName = _doc.IssuerName;
+        var beforeAddress = _doc.IssuerAddress;
+
+        ApplyQrTextField(nameof(LocalDocument.IssuerName), () => _doc.IssuerName, v => _doc.IssuerName = v, lookup.Name);
+        ApplyQrTextField(nameof(LocalDocument.IssuerAddress), () => _doc.IssuerAddress, v => _doc.IssuerAddress = v, lookup.Address);
+
+        if (!string.Equals(beforeName, _doc.IssuerName, StringComparison.Ordinal)
+            || !string.Equals(beforeAddress, _doc.IssuerAddress, StringComparison.Ordinal))
+        {
+            _message = $"Emitente preenchido por lookup ({lookup.Source}).";
+            _formKey++;
+            return true;
+        }
+
+        return false;
     }
 
     private async Task ReprocessQrAsync()
@@ -339,7 +372,7 @@
                 _doc.QrRawPayload = payload;
                 QrDecodedText = payload;
 
-                RunQrParseAndApply(payload);
+                await RunQrParseAndApplyAsync(payload, token);
 
                 _message = $"QR lido e campos preenchidos em {decode.DurationMs} ms ({decode.Strategy}, tentativas: {decode.Attempts}).";
             }
@@ -349,7 +382,7 @@
             }
             else
             {
-                _message = $"QR não encontrado ({decode.Strategy}, tentativas: {decode.Attempts}, {decode.DurationMs} ms).";
+                _message = $"QR nao encontrado ({decode.Strategy}, tentativas: {decode.Attempts}, {decode.DurationMs} ms).";
                 return;
             }
         }
@@ -407,7 +440,7 @@
                 var payload = (decode.Payload ?? string.Empty).Replace("\r", "").Replace("\n", "").Trim();
                 _doc.QrRawPayload = payload;
                 QrDecodedText = payload;
-                RunQrParseAndApply(payload);
+                await RunQrParseAndApplyAsync(payload, token);
                 _message = $"QR lido via crop em {decode.DurationMs} ms.";
             }
             else if (string.Equals(decode.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase))
@@ -416,7 +449,7 @@
             }
             else
             {
-                _message = "Não foi possível ler QR com este crop. Ajusta X/Y/Largura/Altura e tenta novamente.";
+                _message = "Nao foi possivel ler QR com este crop. Ajusta X/Y/Largura/Altura e tenta novamente.";
             }
         }
         catch (Exception ex)
@@ -443,7 +476,7 @@
 
         if (bytes is null || string.IsNullOrWhiteSpace(fileName) || string.IsNullOrWhiteSpace(contentType))
         {
-            _message = "Nenhum ficheiro em memória. Volta ao upload.";
+            _message = "Nenhum ficheiro em memoria. Volta ao upload.";
             return;
         }
 
@@ -456,7 +489,10 @@
             await IndexedDb.SaveDocumentAsync(_doc, fileName, contentType, bytes);
             await SyncService.SyncPendingAsync();
 
-            _message = "Rascunho guardado localmente (IndexedDB).";
+            var enriched = await TryEnrichIssuerAsync(force: true);
+            _message = enriched
+                ? "Rascunho guardado e emitente atualizado por lookup."
+                : "Rascunho guardado localmente (IndexedDB).";
         }
         catch (Exception ex)
         {

@@ -1,10 +1,10 @@
-ï»¿using System.Text.Json;
+using System.Text.Json;
 
 namespace Importer.Client.Models
 {
     /// <summary>
     /// Representa um documento guardado localmente (offline-first).
-    /// Usado para IndexedDB, Sync e HistÃ³rico.
+    /// Usado para IndexedDB, Sync e Histórico.
     /// </summary>
     public class LocalDocument
     {
@@ -18,7 +18,7 @@ namespace Importer.Client.Models
         public string Source { get; set; } = string.Empty;
 
         /// <summary>
-        /// Tipo de documento (ex: Fatura, Nota de CrÃ©dito).
+        /// Tipo de documento (ex: Fatura, Nota de Crédito).
         /// </summary>
         public string DocumentType { get; set; } = string.Empty;
 
@@ -29,6 +29,7 @@ namespace Importer.Client.Models
 
         public string IssuerTaxId { get; set; } = string.Empty;
         public string IssuerName { get; set; } = string.Empty;
+        public string IssuerAddress { get; set; } = string.Empty;
 
         public string ATCUD { get; set; } = string.Empty;
 
@@ -43,7 +44,7 @@ namespace Importer.Client.Models
         public JsonDocument? QrParsedData { get; set; }
 
         /// <summary>
-        /// Estado atual de sincronizaÃ§Ã£o.
+        /// Estado atual de sincronização.
         /// </summary>
         public SyncStatus SyncStatus { get; set; } = SyncStatus.Draft;
 
@@ -53,7 +54,7 @@ namespace Importer.Client.Models
         public string FileKey { get; set; } = string.Empty;
 
         /// <summary>
-        /// Ãšltima mensagem de erro (se aplicÃ¡vel).
+        /// Última mensagem de erro (se aplicável).
         /// </summary>
         public string? ErrorMessage { get; set; }
     }

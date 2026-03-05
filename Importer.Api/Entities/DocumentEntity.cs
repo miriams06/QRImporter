@@ -1,4 +1,4 @@
-namespace Importer.Api.Entities;
+﻿namespace Importer.Api.Entities;
 
 public class DocumentEntity
 {
@@ -14,6 +14,7 @@ public class DocumentEntity
 
     public string IssuerTaxId { get; set; } = string.Empty;
     public string IssuerName { get; set; } = string.Empty;
+    public string IssuerAddress { get; set; } = string.Empty;
     public string Atcud { get; set; } = string.Empty;
 
     public string QrRawPayload { get; set; } = string.Empty;
