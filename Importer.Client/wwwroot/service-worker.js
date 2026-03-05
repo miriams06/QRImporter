@@ -1,4 +1,4 @@
-const CACHE_VERSION = "qrimporter-v1";
+const CACHE_VERSION = "qrimporter-v2";
 const APP_SHELL_CACHE = `app-shell-${CACHE_VERSION}`;
 
 const APP_SHELL_ASSETS = [
