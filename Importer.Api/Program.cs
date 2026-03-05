@@ -59,15 +59,12 @@ builder.Services.AddDbContext<AppDbContext>((sp, opt) =>
 {
     var cfg = sp.GetRequiredService<ApiConfig>();
 
-    var raw = cfg.DatabaseConnectionString;
-    if (LooksLikePlaceholder(raw))
+    if (!TryResolveDatabaseConnectionString(cfg, builder.Configuration, out var raw))
     {
-        // Fallback útil para ambientes onde a equipa define ConnectionStrings:DefaultConnection
-        // (ex.: User Secrets local, variável de ambiente CI, etc.)
-        raw = builder.Configuration.GetConnectionString("DefaultConnection") ?? string.Empty;
+        throw new InvalidOperationException(
+            "DatabaseConnectionString não está configurada. Defina ApiConfig__DatabaseConnectionString " +
+            "ou ConnectionStrings__DefaultConnection com uma connection string PostgreSQL válida.");
     }
-
-     
 
     try
     {
@@ -88,6 +85,21 @@ static bool LooksLikePlaceholder(string? value)
     if (string.IsNullOrWhiteSpace(value)) return false;
     var trimmed = value.Trim();
     return trimmed.StartsWith("#{") && trimmed.EndsWith("}#");
+}
+
+static bool TryResolveDatabaseConnectionString(ApiConfig cfg, IConfiguration configuration, out string connectionString)
+{
+    var raw = cfg.DatabaseConnectionString;
+
+    if (LooksLikePlaceholder(raw))
+    {
+        // Fallback útil para ambientes onde a equipa define ConnectionStrings:DefaultConnection
+        // (ex.: User Secrets local, variável de ambiente CI, etc.)
+        raw = configuration.GetConnectionString("DefaultConnection") ?? string.Empty;
+    }
+
+    connectionString = raw;
+    return !string.IsNullOrWhiteSpace(raw) && !LooksLikePlaceholder(raw);
 }
 
 // ── JWT Authentication (NOVO) ───────────────────────────────────────────────
@@ -142,8 +154,19 @@ app.UseSerilogRequestLogging();
 if (app.Environment.IsDevelopment())
 {
     using var scope = app.Services.CreateScope();
-    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    await db.Database.MigrateAsync();
+    var cfg = scope.ServiceProvider.GetRequiredService<ApiConfig>();
+
+    if (TryResolveDatabaseConnectionString(cfg, app.Configuration, out _))
+    {
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await db.Database.MigrateAsync();
+    }
+    else
+    {
+        app.Logger.LogWarning(
+            "A saltar migrações automáticas porque DatabaseConnectionString não está definida. " +
+            "Configure ApiConfig__DatabaseConnectionString ou ConnectionStrings__DefaultConnection.");
+    }
 }
 
 // ── Pipeline HTTP ───────────────────────────────────────────────────────────
