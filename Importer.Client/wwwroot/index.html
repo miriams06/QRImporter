@@ -10,6 +10,8 @@
     <link rel="stylesheet" href="css/app.css" />
     <link rel="icon" type="image/png" href="favicon.png" />
     <link href="Importer.Client.styles.css" rel="stylesheet" />
+    <link rel="manifest" href="manifest.json" />
+    <meta name="theme-color" content="#0d6efd" />
 </head>
 
 <body>
@@ -41,7 +43,33 @@
     <script src="/js/connectivity.js"></script>
     <script src="/js/indexedDb.js"></script>
 
-    <script src="_framework/blazor.webassembly.js"></script>
+
+    <script>
+        if ("serviceWorker" in navigator) {
+            window.addEventListener("load", async () => {
+                // Hotfix: desativar SW para evitar artefactos antigos (rotas/CSS) em cache.
+                // Quando o fluxo estabilizar, reativar aqui com strategy/versioning robusto.
+                const ENABLE_PWA_SW = false;
+
+                if (!ENABLE_PWA_SW) {
+                    const regs = await navigator.serviceWorker.getRegistrations();
+                    for (const reg of regs) {
+                        await reg.unregister();
+                    }
+
+                    if (window.caches) {
+                        const keys = await caches.keys();
+                        await Promise.all(keys.map((k) => caches.delete(k)));
+                    }
+
+                    return;
+                }
+
+                await navigator.serviceWorker.register("/service-worker.js");
+            });
+        }
+    </script>
+    <script src="_framework/blazor.webassembly.js?v=20260305-1"></script>
 </body>
 
 </html>

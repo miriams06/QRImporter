@@ -1,12 +1,40 @@
-﻿@page "/"
+@page "/"
 
-<h3>Importer</h3>
+<PageTitle>QRImporter</PageTitle>
 
-<p>Upload e validação de documentos ATCUD.</p>
+<section class="landing">
+    <div class="landing__hero">
+        <p class="landing__eyebrow">Portal Web + PWA</p>
+        <h1>Gestão de documentos ATCUD</h1>
+        <p class="landing__subtitle">
+            Faz upload, captura e validação de faturas com leitura de QR client-side,
+            com histórico local e sincronização quando houver internet.
+        </p>
 
-<a class="btn btn-primary" href="/upload">
-    Novo Documento
-</a>
-<a class="btn btn-primary" href="/validate">
-    Ir para validação de documento
-</a>
+        <div class="landing__actions">
+            <a class="landing__btn landing__btn--primary" href="/upload">Inserir documento</a>
+            <a class="landing__btn" href="/history">Ver histórico</a>
+            <a class="landing__btn" href="/login">Login</a>
+        </div>
+    </div>
+
+    <div class="landing__cards">
+        <article class="landing__card">
+            <h3>Novo documento</h3>
+            <p>Upload de PDF/JPG/PNG ou leitura por câmara.</p>
+            <a href="/upload">Começar</a>
+        </article>
+
+        <article class="landing__card">
+            <h3>Histórico</h3>
+            <p>Lista de documentos com filtros por estado, data, NIF e ATCUD.</p>
+            <a href="/history">Abrir histórico</a>
+        </article>
+
+        <article class="landing__card">
+            <h3>Acesso</h3>
+            <p>Entrar para aceder a permissões e operações autenticadas.</p>
+            <a href="/login">Ir para login</a>
+        </article>
+    </div>
+</section>
